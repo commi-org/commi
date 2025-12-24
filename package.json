@@ -1,0 +1,15 @@
+{
+  "name": "commi-monorepo",
+  "version": "1.0.0",
+  "description": "Monorepo for Commi prototype",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT"
+}

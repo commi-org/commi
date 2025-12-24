@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Commi - YouTube Comments Overlay",
+  "version": "1.0.0",
+  "description": "Overlay comments from Commi on YouTube videos",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "*://*.youtube.com/*",
+    "http://localhost:8080/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "css": ["src/styles.css"],
+      "js": ["src/content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/styles.css"],
+      "matches": ["*://*.youtube.com/*"]
+    }
+  ]
+}
