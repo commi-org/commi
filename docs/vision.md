@@ -48,6 +48,17 @@ It solves GDPR and data sovereignty hurdles. A government or university can host
 ### For the Web Ecosystem
 It creates a **"Web of Trust."** By linking reputation to costly signals (like the age of an account or social history), bot attacks become prohibitively expensive.
 
+## The Ecosystem Strategy (Universal Comments)
+
+Commi is not just an isolated tool; it leverages the existing Fediverse (Mastodon, Threads, Lemmy) as a **Universal Comment Backend**.
+
+### The "Reply Loop"
+1.  **Outbound:** When a Commi user annotates a webpage, it appears as a standard post with a link on their ActivityPub profile.
+2.  **Inbound:** When a Mastodon user (who doesn't have Commi) replies to that post, Commi ingests the reply.
+3.  **Overlay:** The reply is displayed as an annotation on the original webpage.
+
+This turns the entire Fediverse into a comment section for the web. Users on other platforms participate in the conversation natively, while Commi aggregates their insights directly onto the page.
+
 ## Technical Architecture Summary
 
 | Component | Choice | Benefit |
