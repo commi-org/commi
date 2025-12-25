@@ -1,3 +1,9 @@
+---
+layout: default
+title: Vision
+nav_order: 2
+---
+
 # Universal Annotation Layer
 
 ## Problem

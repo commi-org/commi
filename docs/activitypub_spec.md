@@ -1,3 +1,9 @@
+---
+layout: default
+title: ActivityPub Spec
+nav_order: 3
+---
+
 # ActivityPub Annotation Extension — Architecture & Implementation
 
 ## 1. High-level Architecture

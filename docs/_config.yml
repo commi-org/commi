@@ -1,0 +1,9 @@
+title: Commi Documentation
+description: ActivityPub-style annotations on web pages
+remote_theme: just-the-docs/just-the-docs
+
+# Theme settings
+color_scheme: dark
+search_enabled: true
+aux_links:
+  "GitHub Repository": "https://github.com/commi-org/commi"

@@ -1,8 +1,15 @@
+---
+layout: default
+title: Home
+nav_order: 1
+---
+
 # Commi Monorepo
 
 This repository contains the prototype for the Commi application.
 
-For documentation, vision, and specs, please see the [docs/](docs/) directory or visit the [GitHub Pages site](https://commi-org.github.io/commi/).
+For the long-term goals and philosophy of this project, see [Vision](vision.md).
+For the ActivityPub specification details, see [ActivityPub Spec](activitypub_spec.md).
 
 ## Structure
 
