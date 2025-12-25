@@ -7,7 +7,10 @@
     "apps/*"
   ],
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "deno task --cwd apps/backend start",
+    "test": "deno test --allow-net apps/backend/integration_test.ts apps/backend/test_api.ts",
+    "lint": "deno lint",
+    "fmt": "deno fmt"
   },
   "keywords": [],
   "author": "",

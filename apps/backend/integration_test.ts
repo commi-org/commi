@@ -1,4 +1,4 @@
-const API_URL = "http://localhost:8080"\;
+const API_URL = "http://localhost:8080";
 
 function assertEquals(actual: any, expected: any, msg?: string) {
   if (actual !== expected) {
@@ -15,8 +15,8 @@ Deno.test("ActivityPub Actor Profile", async () => {
 });
 
 Deno.test("Create and Fetch Annotation", async () => {
-  const targetUrl = "https://example.com/test-page"\;
-  
+  const targetUrl = "https://example.com/test-page";
+
   // 1. Create
   const createRes = await fetch(`${API_URL}/api/annotations`, {
     method: "POST",
@@ -41,9 +41,9 @@ Deno.test("Create and Fetch Annotation", async () => {
   const getRes = await fetch(`${API_URL}/api/annotations?url=${encodeURIComponent(targetUrl)}`);
   assertEquals(getRes.status, 200);
   const list = await getRes.json();
-  
+
   // Check if our created annotation is in the list
   const found = list.find((a: any) => a.id === created.id);
-  assertEquals(deno test --allow-net integration_test.tsfound, true);
+  assertEquals(!!found, true);
   assertEquals(found.target.selector.exact, "Test");
 });
