@@ -1,6 +1,6 @@
 # Commi Project Instructions
 
-You are working on **Commi**, a monorepo containing a Chrome Extension and a Deno backend. The goal is to overlay custom comments on YouTube videos.
+You are working on **Commi**, a monorepo containing a Chrome Extension and a Deno backend. The goal is to overlay **ActivityPub-style annotations** on web pages (currently focused on YouTube).
 
 ## 🏗 Architecture
 
@@ -9,55 +9,53 @@ You are working on **Commi**, a monorepo containing a Chrome Extension and a Den
 - `apps/extension/`: Chrome Extension (Manifest V3).
 
 ### Data Flow
-1. **Content Script** (`content.js`): Injects UI into YouTube. Detects video ID from URL.
-2. **Message Passing**: Content script sends messages (`FETCH_COMMENTS`, `POST_COMMENT`) to the Background script.
-3. **Background Script** (`background.js`): Proxies requests to the Backend API (`http://localhost:8080`) to avoid CSP/CORS issues.
-4. **Backend**: Handles requests, reads/writes to `comments.json`.
+1. **Content Script** (`content.js`): Injects sidebar UI. Captures context (text selection, video timestamp).
+2. **Message Passing**: Content script delegates network requests to Background script via `chrome.runtime.sendMessage`.
+3. **Background Script** (`background.js`): Proxies requests to `http://localhost:8080` to bypass CORS/CSP.
+4. **Backend**: Serves/Stores annotations in `annotations.json`.
 
 ## 💻 Backend Development (`apps/backend`)
 
 - **Runtime**: Deno.
 - **Framework**: [Hono](https://hono.dev/).
-- **Persistence**: Simple JSON file (`comments.json`).
+- **Persistence**: `annotations.json` (ActivityPub JSON-LD format).
 - **API Endpoints**:
-  - `GET /comments/:videoId`: Returns array of comments.
-  - `POST /comments`: Accepts `{ videoId, text, author? }`.
+  - `GET /api/annotations?url=<url>`: Returns annotations for a specific target URL.
+  - `POST /api/annotations`: Creates a new annotation.
+- **ActivityPub Types**:
+  - **Annotation**: `{ type: 'Note', target: { selector: ... } }`
+  - **Selectors**: `TextQuoteSelector` (text selection), `TimestampSelector` (video time).
 - **Commands**:
   - Start server: `deno task start` (runs on port 8080).
-- **Key Files**:
-  - `main.ts`: Single-file server implementation.
-  - `deno.json`: Task definitions and import maps.
 
 ## 🧩 Extension Development (`apps/extension`)
 
 - **Type**: Chrome Manifest V3.
-- **UI**: Vanilla JS + CSS injected into the DOM (`#commi-sidebar`).
+- **UI**: Vanilla JS + CSS. Injected sidebar (`#commi-sidebar`) and floating toggle (`#commi-floating-toggle`).
 - **Communication Pattern**:
-  - **DO NOT** call `fetch` directly from `content.js`.
-  - **ALWAYS** use `chrome.runtime.sendMessage` to delegate network requests to `background.js`.
+  - **NEVER** `fetch` from `content.js`.
+  - **ALWAYS** use `chrome.runtime.sendMessage`.
   - **Message Types**:
-    - `FETCH_COMMENTS`: `{ type: 'FETCH_COMMENTS', videoId }`
-    - `POST_COMMENT`: `{ type: 'POST_COMMENT', payload: { videoId, text } }`
+    - `FETCH_ANNOTATIONS`: `{ type: 'FETCH_ANNOTATIONS', url }`
+    - `POST_ANNOTATION`: `{ type: 'POST_ANNOTATION', payload }`
 - **Key Files**:
-  - `manifest.json`: Permissions (`storage`, host permissions for YouTube/Localhost).
-  - `src/content.js`: UI logic, DOM manipulation, message dispatch.
+  - `src/content.js`: UI logic, selector generation (TextQuote/Timestamp).
   - `src/background.js`: API proxy logic.
 
 ## 🚀 Workflows
 
 - **Running the Stack**:
-  1. Start backend: `cd apps/backend && deno task start`.
-  2. Load extension: Chrome -> `chrome://extensions` -> Load Unpacked -> `apps/extension`.
-  3. Test: Open a YouTube video.
+  1. **Backend**: `cd apps/backend && deno task start`.
+  2. **Extension**: Chrome -> `chrome://extensions` -> Load Unpacked -> `apps/extension`.
+  3. **Test**: Open a page (e.g., YouTube), click the Commi toggle or sidebar.
 - **Debugging**:
-  - **Backend**: Check terminal output.
-  - **Extension UI**: Chrome DevTools on the YouTube tab.
-  - **Extension Logic**: Inspect the "Service Worker" in `chrome://extensions`.
+  - **Backend**: Terminal output (Deno).
+  - **Extension UI**: Chrome DevTools (Elements/Console) on the target tab.
+  - **Extension Network**: Inspect "Service Worker" in `chrome://extensions`.
 
 ## 📝 Conventions
 
-- **Backend**: Use TypeScript.
-- **Extension**: Use Vanilla JavaScript (ES6+).
+- **ActivityPub**: Adhere to W3C Annotation standards for data models (`target`, `selector`, `exact`, `prefix`, `suffix`).
 - **Styling**: Plain CSS in `src/styles.css`.
-- **IDs**: Prefix DOM elements with `commi-` (e.g., `commi-sidebar`, `commi-submit-btn`).
-- **Error Handling**: Background script catches fetch errors and returns `{ success: false, error: message }`.
+- **DOM IDs**: Prefix all injected elements with `commi-` (e.g., `commi-input-area`, `commi-context-preview`).
+- **Error Handling**: Background script catches errors and returns `{ success: false, error: message }`.
