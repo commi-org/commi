@@ -4,42 +4,50 @@ title: Vision
 nav_order: 2
 ---
 
-# Universal Annotation Layer
+# The Vision Blueprint
 
-## Problem
-The modern web fragments public discourse: platforms control visibility, disable comments, and erase context. Important critique, corrections, and expertise are often lost or suppressed, while bots and paid actors distort consensus. There is no widely adopted, standards‑based layer that lets people attach durable, high‑quality commentary to any digital object.
+**Commi** is a decentralized social layer that treats every URL on the internet as a "public square." It allows anyone to annotate the web, creating a global conversation that no single company controls.
 
-## Solution
-A federated, quality‑first annotation platform that overlays comments on any digital content (webpages, videos, images, PDFs, apps) and federates identity and moderation via ActivityPub. Users see and contribute timestamped, anchored annotations through browser extensions and mobile overlays. The platform prioritizes human‑verified contributors, topic reputation, and transparent moderation to surface thoughtful, evidence‑based commentary rather than noise.
+## The Core Concept
+Today's web relies on "Platform-based Trust"—we trust CEOs and corporations to moderate content and manage our identities. Commi moves the web toward **"Protocol-based Trust"**, where trust is established through mathematics, cryptography, and community reputation.
 
-## Core Architecture
-**Client layer:** browser extension and mobile overlay that anchors annotations (CSS/XPath, timestamps, pixel coordinates, page/text hashes).
+## How It Works: The Three Layers
 
-**Federation layer:** ActivityPub‑compatible servers that publish and subscribe to annotation objects (Note, Annotation, Reply).
+### 1. The Transport Layer (Federation)
+*Powered by ActivityPub*
 
-**Storage layer:** distributed object store for metadata and optional encrypted payloads; content addressed by URL + selector + content hash.
+We use the same protocol that powers the Fediverse (Mastodon, Lemmy). This ensures the system is **federated**: Governments, NGOs, and Universities can host their own "instances." This prevents a single entity from owning the world's annotations and ensures the infrastructure can survive even if the original creators disappear.
 
-**Trust layer:** identity verification options (ActivityPub identity, optional proof‑of‑personhood, web‑of‑trust), topic reputations, and rate limits.
+### 2. The Identity Layer (You Own Your Data)
+*Powered by Decentralized Identifiers (DIDs)*
 
-**Moderation layer:** community moderation, server policies, and AI‑assisted detection for spam and coordinated manipulation.
+Instead of insecure email logins or "Login with Google," Commi uses portable cryptographic identities (like Sign-In with Ethereum or Passkeys). Your identity and reputation travel with you across the web, not tied to any specific server.
 
-## Trust and Safety Principles
-**Human‑centric verification:** low‑friction identity signals to raise cost for bots and paid actors without mandatory KYC.
+### 3. The Defense Layer (Trust & Reputation)
+*Powered by Proof-of-Humanity*
 
-**Reputation by topic:** reputation scores tied to subject areas to reward expertise and discourage cross‑topic brigading.
+To solve the "bot problem" without censorship, every annotation carries "Trust Metadata." The system prioritizes high-reputation humans in the UI. Unverified accounts or bots are collapsed into a "low-trust" view. This makes spam invisible to most users without requiring a central authority to delete it.
 
-**Transparency:** public provenance for moderation actions, visible signals for verified accounts and suspected manipulation.
+## Why This Matters
 
-**Privacy by design:** allow anonymous or pseudonymous participation with stronger verification for high‑impact roles; encrypt sensitive annotations.
+### For the General User
+It feels like a standard browser extension. The complexity of blockchain and federation is hidden behind a clean UI that simply distinguishes between **"Verified Content"** and **"Unverified Noise."**
 
-## Social Impact
-**Democratizes critique:** preserves dissent and context even when platforms remove comments.
+### For Institutions
+It solves GDPR and data sovereignty hurdles. A government or university can host its own data node while still participating in the global conversation.
 
-**Improves information quality:** surfaces expert corrections and evidence, reducing misinformation spread.
+### For the Web Ecosystem
+It creates a **"Web of Trust."** By linking reputation to costly signals (like the age of an account or social history), bot attacks become prohibitively expensive.
 
-**Preserves cultural memory:** durable annotations survive edits and deletions of original content.
+## Technical Architecture Summary
 
-**Strengthens civic resilience:** exposes coordinated influence and increases transparency around public discourse.
+| Component | Choice | Benefit |
+| :--- | :--- | :--- |
+| **Protocol** | ActivityPub | Enables federation and government-hosted nodes. |
+| **Reputation** | Verifiable Credentials | Strong anti-bot/Sybil resistance (e.g., Gitcoin Passport). |
+| **Logic** | Weighted Trust Graphs | Trust flows from trusted people (e.g., EigenTrust). |
+| **Storage** | Federated Storage | Fast, compliant, and easy for institutions to manage. |
+| **Interface** | W3C Web Annotations | Universal standard; ensures data is "readable" by any tool. |
 
 ## Conclusion
-A federated annotation layer built on ActivityPub and a quality‑first trust architecture can restore public commentary, elevate expertise, and make the web more transparent and resilient. With careful design around identity, reputation, and moderation, this platform can be a durable public good.
+Commi provides a scalable, accessible, and bot-resistant way for humanity to comment on the digital world without a central gatekeeper.
