@@ -10,6 +10,8 @@ This repository contains the prototype for the Commi application.
 
 For the long-term goals and philosophy of this project, see [Vision](vision.md).
 For the ActivityPub specification details, see [ActivityPub Spec](activitypub_spec.md).
+For the technical implementation details, see [Data & Event Flow](data_flow.md).
+For local development setup, see [Local Federation](local_federation.md).
 
 ## Structure
 

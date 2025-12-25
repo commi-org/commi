@@ -19,19 +19,51 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: Start Backend Server
+      - name: Install SQLite3
+        run: sudo apt-get update && sudo apt-get install -y sqlite3
+
+      - name: Prepare GoToSocial Data Directory
         run: |
-          deno task start &
-          echo "Waiting for server to start..."
-          for i in {1..30}; do
-            if curl -s http://localhost:8080 > /dev/null; then
-              echo "Server is up!"
+          mkdir -p gotosocial_data
+          chmod 777 gotosocial_data
+
+      - name: Start GoToSocial
+        run: docker compose up -d
+
+      - name: Wait for GoToSocial
+        run: |
+          echo "Waiting for GoToSocial to start..."
+          for i in {1..60}; do
+            if curl -s http://localhost:8081 > /dev/null; then
+              echo "GoToSocial is up!"
               exit 0
             fi
             sleep 1
           done
-          echo "Server failed to start within 30 seconds"
+          echo "GoToSocial failed to start within 60 seconds"
+          docker compose logs
           exit 1
 
+      - name: Create GoToSocial Admin User
+        run: |
+          docker run --rm \
+            --entrypoint /gotosocial/gotosocial \
+            --network host \
+            -v $PWD/gotosocial_data:/gotosocial/storage \
+            -e GTS_HOST=localhost:8081 \
+            -e GTS_DB_TYPE=sqlite \
+            -e GTS_DB_ADDRESS=/gotosocial/storage/sqlite.db \
+            superseriousbusiness/gotosocial:latest \
+            admin account create \
+            --username admin \
+            --email admin@example.com \
+            --password 'StrongPassword123!'
+
       - name: Run Tests
-        run: deno task test
+        run: |
+          deno task start &
+          
+          echo "Waiting for backend..."
+          timeout 30s bash -c 'until curl -s -o /dev/null http://localhost:8080; do sleep 1; done'
+          
+          deno task test

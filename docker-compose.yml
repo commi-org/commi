@@ -1,0 +1,21 @@
+services:
+  gotosocial:
+    image: superseriousbusiness/gotosocial:latest
+    container_name: gotosocial
+    network_mode: "host"
+    environment:
+      - GTS_HOST=localhost:8081
+      - GTS_PORT=8081
+      - GTS_DB_TYPE=sqlite
+      - GTS_DB_ADDRESS=/gotosocial/storage/sqlite.db
+      - GTS_STORAGE_BACKEND=local
+      - GTS_STORAGE_LOCAL_BASE_PATH=/gotosocial/storage
+      - GTS_LETSENCRYPT_ENABLED=false
+      - GTS_ACCOUNTS_REGISTRATION_OPEN=true
+      - GTS_ACCOUNTS_APPROVAL_REQUIRED=false
+      - GTS_HTTP_CLIENT_ALLOW_IPS=127.0.0.1/32,::1/128
+      - GTS_HTTP_CLIENT_INSECURE_OUTGOING=true
+      - GTS_PROTOCOL=http
+      - GTS_LOG_LEVEL=debug
+    volumes:
+      - ./gotosocial_data:/gotosocial/storage

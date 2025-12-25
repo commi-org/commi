@@ -11,7 +11,7 @@ nav_order: 2
 ## The Core Concept
 Today's web relies on "Platform-based Trust"—we trust CEOs and corporations to moderate content and manage our identities. Commi moves the web toward **"Protocol-based Trust"**, where trust is established through mathematics, cryptography, and community reputation.
 
-## How It Works: The Three Layers
+## How It Works: The Four Layers
 
 ### 1. The Transport Layer (Federation)
 *Powered by ActivityPub*
@@ -27,6 +27,15 @@ Instead of insecure email logins or "Login with Google," Commi uses portable cry
 *Powered by Proof-of-Humanity*
 
 To solve the "bot problem" without censorship, every annotation carries "Trust Metadata." The system prioritizes high-reputation humans in the UI. Unverified accounts or bots are collapsed into a "low-trust" view. This makes spam invisible to most users without requiring a central authority to delete it.
+
+## 4. The Aggregation Layer (Solving Fragmentation)
+*Powered by Bridging Algorithms*
+
+To prevent "echo chambers" where users only see what they agree with, Commi relies on **Aggregator Nodes**. These are large servers (run by universities, NGOs, or consortiums) that ingest data from the entire network.
+
+Instead of simple popularity contests, these nodes run **Bridging Algorithms** (like Community Notes) that prioritize content with **cross-partisan consensus**. This gives users the best of both worlds:
+1.  **Decentralization**: No single company owns the data.
+2.  **Quality**: High-level curation that filters out noise and bias.
 
 ## Why This Matters
 

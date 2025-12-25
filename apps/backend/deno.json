@@ -1,6 +1,8 @@
 {
   "tasks": {
-    "start": "deno run --allow-net --allow-read --allow-write --watch main.ts"
+    "start": "deno run --allow-net --allow-read --allow-write --watch main.ts",
+    "test": "deno test --allow-net --allow-read --allow-run",
+    "test:e2e": "deno test --allow-net --allow-read --allow-run e2e_test.ts"
   },
   "imports": {
     "hono": "npm:hono@^4.0.0"

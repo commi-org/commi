@@ -1,0 +1,6 @@
+{
+  "tasks": {
+    "start": "deno task --cwd apps/backend start",
+    "test": "deno task --cwd apps/backend test"
+  }
+}
