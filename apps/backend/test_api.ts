@@ -17,12 +17,12 @@ function assert(condition: boolean, msg?: string) {
 // --- Tests ---
 
 Deno.test("GET /users/:name - Actor Profile", async () => {
-  const res = await fetch(`${API_URL}/users/alice`);
+  const res = await fetch(`${API_URL}/users/commi`);
   assertEquals(res.status, 200);
   const data = await res.json();
   assertEquals(data.type, "Person");
-  assertEquals(data.preferredUsername, "alice");
-  assert(data.inbox.endsWith("/users/alice/inbox"), "Inbox URL incorrect");
+  assertEquals(data.preferredUsername, "commi");
+  assert(data.inbox.endsWith("/users/commi/inbox"), "Inbox URL incorrect");
 });
 
 Deno.test("POST /api/annotations - Validation Errors", async () => {

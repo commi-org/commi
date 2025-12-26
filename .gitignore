@@ -1,3 +1,4 @@
 apps/backend/annotations.json
 apps/backend/activities.json
 gotosocial_data/
+*.log

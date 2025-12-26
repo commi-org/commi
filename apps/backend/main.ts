@@ -1,16 +1,46 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { getOrCreateKeyPair } from './keys.ts';
-import { deliverActivity } from './federation.ts';
+import { federation } from '@fedify/hono';
+import { Activity } from '@fedify/fedify';
+import { fedi } from './fedify.ts';
+import { configure, getConsoleSink } from "@logtape/logtape";
+
+await configure({
+  sinks: { console: getConsoleSink() },
+  filters: {},
+  loggers: [
+    { category: "fedify", level: "debug", sinks: ["console"] },
+  ],
+});
 
 const app = new Hono();
+
+// --- Logging ---
+const LOG_FILE = './backend.log';
+function logToFile(msg: string) {
+  Deno.writeTextFileSync(LOG_FILE, msg + '\n', { append: true });
+}
+const originalLog = console.log;
+const originalError = console.error;
+console.log = (...args) => {
+  originalLog(...args);
+  logToFile(`[LOG] ${args.join(' ')}`);
+};
+console.error = (...args) => {
+  originalError(...args);
+  logToFile(`[ERROR] ${args.join(' ')}`);
+};
+
+app.onError((err, c) => {
+  console.error('Hono Error:', err);
+  return c.text(`Internal Server Error: ${err.message}\n${err.stack}`, 500);
+});
 
 // --- Configuration ---
 const PORT = 8080;
 const HOST = `http://localhost:${PORT}`;
 const DB_FILE = './annotations.json';
 const ACTIVITIES_FILE = './activities.json';
-const KEYS = getOrCreateKeyPair();
 
 // --- Types ---
 interface Selector {
@@ -33,20 +63,8 @@ interface Annotation {
     selector?: Selector;
   };
   published: string;
-}
-
-interface Actor {
-  "@context": string[];
-  id: string;
-  type: 'Person';
-  preferredUsername: string;
-  inbox: string;
-  outbox: string;
-  publicKey: {
-    id: string;
-    owner: string;
-    publicKeyPem: string;
-  };
+  to?: string[];
+  cc?: string[];
 }
 
 // --- Persistence ---
@@ -102,29 +120,12 @@ app.use('/*', async (c, next) => {
   c.header('Access-Control-Allow-Private-Network', 'true');
 });
 
-// --- WebFinger ---
-app.get('/.well-known/webfinger', (c) => {
-  const resource = c.req.query('resource');
-  if (!resource || !resource.startsWith('acct:')) {
-    return c.json({ error: 'Bad Request' }, 400);
-  }
-  
-  const [_, acct] = resource.split(':');
-  const [username] = acct.split('@');
-
-  const actorId = `${HOST}/users/${username}`;
-
-  return c.json({
-    subject: resource,
-    links: [
-      {
-        rel: 'self',
-        type: 'application/activity+json',
-        href: actorId
-      }
-    ]
-  }, 200, { 'Content-Type': 'application/jrd+json' });
-});
+// --- Fedify Middleware ---
+// Handles /.well-known/webfinger, /users/:handle, /inbox, etc.
+app.use(federation(fedi, (c) => {
+  console.log(`[Fedify] Processing: ${c.req.url}`);
+  return undefined;
+}));
 
 // --- API Endpoints ---
 
@@ -153,12 +154,12 @@ app.post('/api/annotations', async (c) => {
   // --- Federation Logic ---
   // Automatically federate the new annotation to the admin user on the local instance
   const targetActor = "http://localhost:8081/users/admin";
-  const targetInbox = "http://localhost:8081/users/admin/inbox";
+  // const targetInbox = "http://localhost:8081/users/admin/inbox"; // Handled by Fedify later
 
   const newAnnotation: Annotation = {
     id: `${HOST}/annotations/${crypto.randomUUID()}`,
     type: 'Note',
-    attributedTo: (author && author.startsWith('http')) ? author : `${HOST}/users/guest`,
+    attributedTo: (author && author.startsWith('http')) ? author : `${HOST}/users/commi`,
     content,
     target: {
       href: target.href,
@@ -181,57 +182,48 @@ app.post('/api/annotations', async (c) => {
     type: "Create",
     actor: actorId,
     object: {
-      ...newAnnotation,
-      to: [targetActor],
-      cc: [],
+      id: newAnnotation.id,
+      type: "Note",
+      content: `${newAnnotation.content}\n\n@admin@localhost:8081`,
+      attributedTo: actorId,
+      published: newAnnotation.published,
+      to: ["https://www.w3.org/ns/activitystreams#Public"],
+      cc: [targetActor],
       tag: [
         {
           type: 'Mention',
           href: targetActor,
-          name: '@admin'
+          name: '@admin@localhost:8081'
         }
-      ]
+      ],
+      // Store annotation-specific metadata in attachment for ActivityPub compatibility
+      attachment: newAnnotation.target ? [{
+        type: 'Link',
+        href: newAnnotation.target.href,
+        name: 'annotation-target',
+        mediaType: 'application/json',
+        summary: JSON.stringify(newAnnotation.target.selector)
+      }] : []
     },
-    to: [targetActor],
-    cc: []
+    to: ["https://www.w3.org/ns/activitystreams#Public"],
+    cc: [targetActor]
   };
 
   const activities = loadActivities();
   activities.push(activity);
   saveActivities(activities);
 
-  // Fire and forget federation (don't block the API response)
-  deliverActivity(activity, actorId, targetInbox)
-    .then(success => console.log(`Federation to ${targetInbox}: ${success ? 'Success' : 'Failed'}`))
-    .catch(err => console.error('Federation error:', err));
+  // Send Activity via Fedify
+  try {
+    const ctx = fedi.createContext(c.req.raw);
+    const fedifyActivity = await Activity.fromJsonLd(activity);
+    await ctx.sendActivity({ handle: 'commi' }, [targetActor], fedifyActivity);
+    console.log('Activity sent to', targetActor);
+  } catch (err) {
+    console.error('Failed to send activity:', err);
+  }
 
   return c.json(newAnnotation, 201);
-});
-
-// --- ActivityPub Endpoints ---
-
-// 3. Actor Profile
-app.get('/users/:name', (c) => {
-  const name = c.req.param('name');
-  const id = `${HOST}/users/${name}`;
-  
-  const actor: Actor = {
-    "@context": [
-      "https://www.w3.org/ns/activitystreams",
-      "https://w3id.org/security/v1"
-    ],
-    id,
-    type: "Person",
-    preferredUsername: name,
-    inbox: `${id}/inbox`,
-    outbox: `${id}/outbox`,
-    publicKey: {
-      id: `${id}#main-key`,
-      owner: id,
-      publicKeyPem: KEYS.publicKey
-    }
-  };
-  return c.json(actor, 200, { 'Content-Type': 'application/activity+json' });
 });
 
 // 4. Get Annotation by ID
@@ -258,97 +250,9 @@ app.get('/activities/:id', (c) => {
   return c.json(found, 200, { 'Content-Type': 'application/activity+json' });
 });
 
-// --- ActivityPub Endpoints ---
-
-// 3. Actor Profile
-app.get('/users/:name', (c) => {
-  const name = c.req.param('name');
-  const id = `${HOST}/users/${name}`;
-  
-  const actor: Actor = {
-    "@context": [
-      "https://www.w3.org/ns/activitystreams",
-      "https://w3id.org/security/v1"
-    ],
-    id,
-    type: "Person",
-    preferredUsername: name,
-    inbox: `${id}/inbox`,
-    outbox: `${id}/outbox`,
-    publicKey: {
-      id: `${id}#main-key`,
-      owner: id,
-      publicKeyPem: KEYS.publicKey
-    }
-  };
-
-  return c.json(actor, 200, { 'Content-Type': 'application/activity+json' });
-});
-
-// 4. Outbox (Public Feed)
-app.get('/users/:name/outbox', (c) => {
-  const name = c.req.param('name');
-  const id = `${HOST}/users/${name}`;
-  const all = loadAnnotations();
-  const userAnnotations = all.filter(a => a.attributedTo === id);
-
-  const collection = {
-    "@context": "https://www.w3.org/ns/activitystreams",
-    id: `${id}/outbox`,
-    type: "OrderedCollection",
-    totalItems: userAnnotations.length,
-    orderedItems: userAnnotations.map(note => ({
-      type: "Create",
-      actor: id,
-      object: note
-    }))
-  };
-
-  return c.json(collection, 200, { 'Content-Type': 'application/activity+json' });
-});
-
-// 5. Inbox (Receive Federation)
-app.post('/users/:name/inbox', async (c) => {
-  // In a real implementation, we would verify signatures here
-  const activity = await c.req.json();
-  console.log('Received activity:', activity);
-  
-  // Process Create activity
-  if (activity.type === 'Create' && activity.object && activity.object.type === 'Note') {
-    const note = activity.object;
-    const all = loadAnnotations();
-    // Avoid duplicates
-    if (!all.find(a => a.id === note.id)) {
-      all.push(note);
-      saveAnnotations(all);
-    }
-  }
-
-  return c.json({ status: 'accepted' }, 202);
-});
-
-// --- Federation Test Endpoint ---
-app.post('/api/federate', async (c) => {
-  const body = await c.req.json();
-  const { targetInbox, activity } = body;
-  
-  if (!targetInbox || !activity) {
-    return c.json({ error: 'Missing targetInbox or activity' }, 400);
-  }
-
-  // Assume acting as 'guest' for now
-  const actorId = `${HOST}/users/guest`;
-  
-  // Ensure activity has actor
-  if (!activity.actor) {
-    activity.actor = actorId;
-  }
-
-  const success = await deliverActivity(activity, actorId, targetInbox);
-  
-  return c.json({ success });
-});
-
 console.log(`Server running on ${HOST}`);
+
+// Start the federation queue worker
+fedi.startQueue();
 
 Deno.serve({ port: PORT, hostname: "0.0.0.0" }, app.fetch);

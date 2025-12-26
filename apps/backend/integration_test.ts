@@ -7,11 +7,13 @@ function assertEquals(actual: any, expected: any, msg?: string) {
 }
 
 Deno.test("ActivityPub Actor Profile", async () => {
-  const res = await fetch(`${API_URL}/users/alice`);
+  const res = await fetch(`${API_URL}/users/commi`, {
+    headers: { "Accept": "application/activity+json" }
+  });
   assertEquals(res.status, 200);
   const data = await res.json();
   assertEquals(data.type, "Person");
-  assertEquals(data.preferredUsername, "alice");
+  assertEquals(data.preferredUsername, "commi");
 });
 
 Deno.test("Create and Fetch Annotation", async () => {
