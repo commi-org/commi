@@ -98,8 +98,13 @@ function renderAnnotations(annotations) {
       }
     }
 
+    const isReply = !!note.inReplyTo;
+    const replyStyle = isReply ? 'margin-left: 20px; border-left: 2px solid #eee; padding-left: 10px;' : '';
+    const replyLabel = isReply ? '<div style="font-size: 0.7em; color: #888; margin-bottom: 2px;">↳ Reply</div>' : '';
+
     return `
-    <div class="commi-comment">
+    <div class="commi-comment" style="${replyStyle}">
+      ${replyLabel}
       <div class="commi-comment-author">${escapeHtml(note.attributedTo || 'Anonymous')}</div>
       ${contextHtml}
       <div class="commi-comment-text">${escapeHtml(note.content)}</div>

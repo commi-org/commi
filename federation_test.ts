@@ -101,6 +101,7 @@ Deno.test({
           }
         })
       });
+      const createdNote = await createRes.json();
       assertEquals(createRes.status, 201);
 
       // Wait for federation
@@ -116,7 +117,43 @@ Deno.test({
         throw new Error("Annotation not found in aggregator");
       }
       assertEquals(found.content, noteContent);
-      console.log("Federation successful!");
+      console.log("Outbound Federation successful!");
+
+      // 4. Send Reply from Aggregator (Inbound Federation)
+      console.log("Testing Inbound Reply...");
+      const replyContent = `Reply from Aggregator ${Date.now()}`;
+      
+      const replyRes = await fetch(`${AGGREGATOR_URL}/api/reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: replyContent,
+          inReplyTo: createdNote.id,
+          targetActor: `${BACKEND_URL}/users/commi`
+        })
+      });
+      
+      if (!replyRes.ok) {
+        const text = await replyRes.text();
+        throw new Error(`Reply failed: ${replyRes.status} ${text}`);
+      }
+      assertEquals(replyRes.status, 200);
+
+      console.log("Reply sent. Waiting for ingestion...");
+      await delay(3000);
+
+      // 5. Verify Backend has the reply attached to the target
+      const backendAnnotations = JSON.parse(await Deno.readTextFile(`${BACKEND_DIR}/annotations.json`));
+      const replyAnnotation = backendAnnotations.find((a: any) => a.content === replyContent);
+      
+      if (!replyAnnotation) {
+        console.log("Backend Annotations:", backendAnnotations);
+        throw new Error("Reply not found in backend");
+      }
+      
+      // Verify it inherited the target
+      assertEquals(replyAnnotation.target.href, "https://test.com");
+      console.log("Inbound Reply Loop successful!");
 
     } catch (err) {
       console.error("Test failed:", err);
