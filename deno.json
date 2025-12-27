@@ -1,6 +1,7 @@
 {
   "tasks": {
     "start": "deno task --cwd apps/backend start",
-    "test": "deno task --cwd apps/backend test"
+    "test": "deno task --cwd apps/backend test",
+    "test:federation": "deno test -A federation_test.ts"
   }
 }

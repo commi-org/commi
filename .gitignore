@@ -1,4 +1,10 @@
 apps/backend/annotations.json
 apps/backend/activities.json
+apps/backend/followers.json
+apps/backend/keys.json
+
+apps/aggregator/aggregated.json
+apps/aggregator/keys.json
+
 gotosocial_data/
 *.log

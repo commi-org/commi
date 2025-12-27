@@ -1,0 +1,12 @@
+{
+  "tasks": {
+    "start": "deno run --allow-net --allow-read --allow-write --allow-env --watch main.ts",
+    "test": "deno test --allow-net --allow-read --allow-write --allow-run --allow-env"
+  },
+  "imports": {
+    "hono": "npm:hono@^4.0.0",
+    "@fedify/fedify": "npm:@fedify/fedify@^1.0.0",
+    "@fedify/hono": "npm:@fedify/hono@^1.0.0",
+    "@logtape/logtape": "npm:@logtape/logtape@^0.4.0"
+  }
+}

@@ -60,14 +60,24 @@ jobs:
 
       - name: Run Tests
         run: |
+          # Start Backend
           cd apps/backend
           deno task start &
           BACKEND_PID=$!
+          cd ../..
+
+          # Start Aggregator
+          cd apps/aggregator
+          deno task start &
+          AGGREGATOR_PID=$!
+          cd ../..
           
-          echo "Waiting for backend..."
+          echo "Waiting for services..."
           timeout 30s bash -c 'until curl -s -o /dev/null http://localhost:8080; do sleep 1; done'
+          timeout 30s bash -c 'until curl -s -o /dev/null http://localhost:8082; do sleep 1; done'
           
           # Run unit tests
+          cd apps/backend
           deno task test
           
           # Run E2E tests
@@ -75,3 +85,4 @@ jobs:
           
           # Cleanup
           kill $BACKEND_PID || true
+          kill $AGGREGATOR_PID || true

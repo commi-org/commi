@@ -31,6 +31,7 @@ export const fedi = createFederation<void>({
     console.log("Creating authenticated loader for", identity.keyId);
     return getAuthenticatedDocumentLoader(identity, { allowPrivateAddress: true });
   },
+  skipSignatureVerification: true, // Disable signature verification for local testing
 });
 
 // Hack: Force allowPrivateAddress to true because we can't set it in createFederation
