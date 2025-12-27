@@ -9,6 +9,7 @@ export interface AggregatedNote {
   author: string;
   published: string;
   origin: string; // The instance we got it from
+  inReplyTo?: string;
 }
 
 export function loadNotes(): AggregatedNote[] {

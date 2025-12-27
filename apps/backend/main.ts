@@ -204,7 +204,7 @@ app.post('/api/annotations', async (c) => {
   if (!user) return c.json({ error: 'User not found' }, 404);
 
   const body = await c.req.json();
-  const { content, target } = body;
+  const { content, target, inReplyTo } = body;
 
   if (!content || !target || !target.href) {
     return c.json({ error: 'Invalid input' }, 400);
@@ -221,6 +221,7 @@ app.post('/api/annotations', async (c) => {
     type: 'Note',
     attributedTo: user.id,
     content,
+    inReplyTo,
     target: {
       href: target.href,
       selector: target.selector
@@ -241,6 +242,7 @@ app.post('/api/annotations', async (c) => {
       id: newAnnotation.id,
       type: "Note",
       content: newAnnotation.content,
+      inReplyTo: newAnnotation.inReplyTo,
       attributedTo: user.id,
       published: newAnnotation.published,
       to: ["https://www.w3.org/ns/activitystreams#Public"],

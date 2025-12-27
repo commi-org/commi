@@ -122,7 +122,7 @@ function renderAuthForm() {
 
 async function checkLoginStatus() {
   try {
-    const response = await chrome.runtime.sendMessage({ type: 'GET_USER' });
+    const response = await sendMessageSafe({ type: 'GET_USER' });
     if (response.success && response.data) {
       currentUser = response.data;
       document.getElementById('commi-auth-btn').style.color = '#4caf50'; // Green if logged in
@@ -147,7 +147,7 @@ async function handleLogin() {
   }
 
   try {
-    const response = await chrome.runtime.sendMessage({ 
+    const response = await sendMessageSafe({ 
       type: 'LOGIN', 
       username, 
       password 
@@ -177,7 +177,7 @@ async function handleRegister() {
   }
 
   try {
-    const response = await chrome.runtime.sendMessage({ 
+    const response = await sendMessageSafe({ 
       type: 'REGISTER', 
       username, 
       email, 
@@ -208,7 +208,30 @@ function renderAnnotations(annotations) {
     return;
   }
 
-  list.innerHTML = annotations.map(note => {
+  // 1. Build a map of all notes by ID for easy lookup
+  const noteMap = new Map();
+  annotations.forEach(note => noteMap.set(note.id, note));
+
+  // 2. Group replies by their parent ID
+  const repliesMap = new Map();
+  const rootNotes = [];
+
+  annotations.forEach(note => {
+    if (note.inReplyTo && noteMap.has(note.inReplyTo)) {
+      if (!repliesMap.has(note.inReplyTo)) {
+        repliesMap.set(note.inReplyTo, []);
+      }
+      repliesMap.get(note.inReplyTo).push(note);
+    } else {
+      rootNotes.push(note);
+    }
+  });
+
+  // Sort roots by date (newest first)
+  rootNotes.sort((a, b) => new Date(b.published) - new Date(a.published));
+
+  // 3. Recursive render function
+  function renderNote(note, depth = 0) {
     let contextHtml = '';
     if (note.target && note.target.selector) {
       const s = note.target.selector;
@@ -219,19 +242,46 @@ function renderAnnotations(annotations) {
       }
     }
 
-    const isReply = !!note.inReplyTo;
-    const replyStyle = isReply ? 'margin-left: 20px; border-left: 2px solid #eee; padding-left: 10px;' : '';
+    const isReply = depth > 0;
+    const replyStyle = isReply ? `margin-left: ${depth * 20}px; border-left: 2px solid #eee; padding-left: 10px;` : '';
     const replyLabel = isReply ? '<div style="font-size: 0.7em; color: #888; margin-bottom: 2px;">↳ Reply</div>' : '';
 
-    return `
+    let html = `
     <div class="commi-comment" style="${replyStyle}">
       ${replyLabel}
       <div class="commi-comment-author">${escapeHtml(note.attributedTo || 'Anonymous')}</div>
       ${contextHtml}
       <div class="commi-comment-text">${escapeHtml(note.content)}</div>
-      <div class="commi-comment-time">${new Date(note.published).toLocaleTimeString()}</div>
+      <div class="commi-comment-footer" style="display: flex; justify-content: space-between; align-items: center; margin-top: 5px;">
+        <div class="commi-comment-time" style="font-size: 0.8em; color: #aaa;">${new Date(note.published).toLocaleTimeString()}</div>
+        <button class="commi-reply-btn" data-id="${note.id}" style="background: none; border: none; color: #2196f3; cursor: pointer; font-size: 0.8em;">Reply</button>
+      </div>
     </div>
-  `}).join('');
+    `;
+
+    // Render children
+    if (repliesMap.has(note.id)) {
+      const children = repliesMap.get(note.id);
+      // Sort children oldest first (conversation flow)
+      children.sort((a, b) => new Date(a.published) - new Date(b.published));
+      children.forEach(child => {
+        html += renderNote(child, depth + 1);
+      });
+    }
+
+    return html;
+  }
+
+  list.innerHTML = rootNotes.map(note => renderNote(note)).join('');
+
+  // Attach event listeners to reply buttons
+  list.querySelectorAll('.commi-reply-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const id = e.currentTarget.dataset.id;
+      console.log('Reply clicked for ID:', id);
+      handleReply(id);
+    });
+  });
 }
 
 function escapeHtml(text) {
@@ -244,6 +294,7 @@ function escapeHtml(text) {
 // --- Logic & API ---
 
 let currentSelector = null;
+let replyToId = null;
 
 function getSelector() {
   const selection = window.getSelection();
@@ -282,6 +333,21 @@ function handleAttachContext() {
   }
 }
 
+function handleReply(id) {
+  replyToId = id;
+  const preview = document.getElementById('commi-context-preview');
+  preview.style.display = 'block';
+  preview.innerHTML = `Replying to annotation... <button id="commi-cancel-reply" style="font-size: 0.8em; margin-left: 5px;">Cancel</button>`;
+  
+  document.getElementById('commi-cancel-reply').addEventListener('click', () => {
+    replyToId = null;
+    preview.style.display = 'none';
+    preview.textContent = '';
+  });
+  
+  document.getElementById('commi-comment-input').focus();
+}
+
 async function handleSubmitAnnotation() {
   if (!currentUser) {
     alert("Please login to post annotations.");
@@ -296,6 +362,7 @@ async function handleSubmitAnnotation() {
 
   const payload = {
     content,
+    inReplyTo: replyToId,
     target: {
       href: currentUrl,
       selector: currentSelector
@@ -303,7 +370,7 @@ async function handleSubmitAnnotation() {
   };
 
   try {
-    const response = await chrome.runtime.sendMessage({ 
+    const response = await sendMessageSafe({ 
       type: 'POST_ANNOTATION', 
       payload 
     });
@@ -311,6 +378,7 @@ async function handleSubmitAnnotation() {
     if (response.success) {
       input.value = '';
       currentSelector = null;
+      replyToId = null;
       document.getElementById('commi-context-preview').style.display = 'none';
       fetchAnnotations(); // Refresh list
     } else {
@@ -322,11 +390,39 @@ async function handleSubmitAnnotation() {
   }
 }
 
+function handleContextInvalidated() {
+  if (pollIntervalId) clearInterval(pollIntervalId);
+  const list = document.getElementById('commi-comments-list');
+  if (list) {
+    list.innerHTML = `
+      <div style="text-align: center; color: #f44336; margin-top: 20px; padding: 10px;">
+        <strong>Extension Updated</strong><br>
+        Please refresh this page to reconnect Commi.
+        <button id="commi-refresh-btn" style="margin-top: 10px; padding: 5px 10px; cursor: pointer;">Refresh Page</button>
+      </div>
+    `;
+    const btn = document.getElementById('commi-refresh-btn');
+    if(btn) btn.addEventListener('click', () => window.location.reload());
+  }
+}
+
+async function sendMessageSafe(message) {
+  try {
+    return await chrome.runtime.sendMessage(message);
+  } catch (error) {
+    if (error.message && error.message.includes('Extension context invalidated')) {
+      handleContextInvalidated();
+      throw new Error('Extension context invalidated');
+    }
+    throw error;
+  }
+}
+
 async function fetchAnnotations() {
   if (!currentUrl) return;
   
   try {
-    const response = await chrome.runtime.sendMessage({ 
+    const response = await sendMessageSafe({ 
       type: 'FETCH_ANNOTATIONS', 
       url: currentUrl 
     });
@@ -337,7 +433,9 @@ async function fetchAnnotations() {
       console.error('Failed to fetch annotations:', response.error);
     }
   } catch (error) {
-    console.error('Error fetching annotations:', error);
+    if (error.message !== 'Extension context invalidated') {
+      console.error('Error fetching annotations:', error);
+    }
   }
 }
 

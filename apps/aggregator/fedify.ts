@@ -125,6 +125,7 @@ async function processNote(ctx: any, object: Note) {
         targetUrl,
         author: json.attributedTo,
         published: json.published,
-        origin: ctx.getActorUri("index").host 
+        origin: ctx.getActorUri("index").host,
+        inReplyTo: json.inReplyTo
       });
 }
