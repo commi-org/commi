@@ -46,24 +46,32 @@ jobs:
 
       - name: Create GoToSocial Admin User
         run: |
-          docker run --rm \
-            --entrypoint /gotosocial/gotosocial \
-            --network host \
-            -v $PWD/gotosocial_data:/gotosocial/storage \
-            -e GTS_HOST=localhost:8081 \
-            -e GTS_DB_TYPE=sqlite \
-            -e GTS_DB_ADDRESS=/gotosocial/storage/sqlite.db \
-            superseriousbusiness/gotosocial:latest \
+          # Use docker exec to create user in the running container
+          docker compose exec -T gotosocial /gotosocial/gotosocial \
             admin account create \
             --username admin \
             --email admin@example.com \
-            --password 'StrongPassword123!'
+            --password 'StrongPassword123!' || echo "Admin user may already exist"
+          
+          # Fix database permissions for test access
+          sudo chmod 666 gotosocial_data/sqlite.db || true
+          sudo chmod 666 gotosocial_data/sqlite.db-shm || true
+          sudo chmod 666 gotosocial_data/sqlite.db-wal || true
 
       - name: Run Tests
         run: |
+          cd apps/backend
           deno task start &
+          BACKEND_PID=$!
           
           echo "Waiting for backend..."
           timeout 30s bash -c 'until curl -s -o /dev/null http://localhost:8080; do sleep 1; done'
           
+          # Run unit tests
           deno task test
+          
+          # Run E2E tests
+          deno task test:e2e
+          
+          # Cleanup
+          kill $BACKEND_PID || true

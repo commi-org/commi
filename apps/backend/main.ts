@@ -39,60 +39,14 @@ app.onError((err, c) => {
 // --- Configuration ---
 const PORT = 8080;
 const HOST = `http://localhost:${PORT}`;
-const DB_FILE = './annotations.json';
-const ACTIVITIES_FILE = './activities.json';
 
-// --- Types ---
-interface Selector {
-  type: 'TextQuoteSelector' | 'DOMSelector' | 'TimestampSelector';
-  exact?: string;
-  prefix?: string;
-  suffix?: string;
-  start?: string; // ISO 8601 duration or seconds
-  end?: string;
-  value?: string; // CSS selector
-}
-
-interface Annotation {
-  id: string;
-  type: 'Note';
-  attributedTo: string;
-  content: string;
-  target: {
-    href: string;
-    selector?: Selector;
-  };
-  published: string;
-  to?: string[];
-  cc?: string[];
-}
-
-// --- Persistence ---
-function loadAnnotations(): Annotation[] {
-  try {
-    const data = Deno.readTextFileSync(DB_FILE);
-    return JSON.parse(data);
-  } catch {
-    return [];
-  }
-}
-
-function saveAnnotations(annotations: Annotation[]) {
-  Deno.writeTextFileSync(DB_FILE, JSON.stringify(annotations, null, 2));
-}
-
-function loadActivities(): any[] {
-  try {
-    const data = Deno.readTextFileSync(ACTIVITIES_FILE);
-    return JSON.parse(data);
-  } catch {
-    return [];
-  }
-}
-
-function saveActivities(activities: any[]) {
-  Deno.writeTextFileSync(ACTIVITIES_FILE, JSON.stringify(activities, null, 2));
-}
+import { 
+  loadAnnotations, 
+  saveAnnotations, 
+  loadActivities, 
+  saveActivities, 
+  type Annotation, 
+} from './db.ts';
 
 // --- Middleware ---
 // Simple Rate Limiter (50 req/sec per IP)
@@ -123,7 +77,7 @@ app.use('/*', async (c, next) => {
 // --- Fedify Middleware ---
 // Handles /.well-known/webfinger, /users/:handle, /inbox, etc.
 app.use(federation(fedi, (c) => {
-  console.log(`[Fedify] Processing: ${c.req.url}`);
+  console.log(`[Fedify] Processing: ${c.req.raw.url}`);
   return undefined;
 }));
 
@@ -195,15 +149,7 @@ app.post('/api/annotations', async (c) => {
           href: targetActor,
           name: '@admin@localhost:8081'
         }
-      ],
-      // Store annotation-specific metadata in attachment for ActivityPub compatibility
-      attachment: newAnnotation.target ? [{
-        type: 'Link',
-        href: newAnnotation.target.href,
-        name: 'annotation-target',
-        mediaType: 'application/json',
-        summary: JSON.stringify(newAnnotation.target.selector)
-      }] : []
+      ]
     },
     to: ["https://www.w3.org/ns/activitystreams#Public"],
     cc: [targetActor]
@@ -217,7 +163,12 @@ app.post('/api/annotations', async (c) => {
   try {
     const ctx = fedi.createContext(c.req.raw);
     const fedifyActivity = await Activity.fromJsonLd(activity);
-    await ctx.sendActivity({ handle: 'commi' }, [targetActor], fedifyActivity);
+    // Manually construct Recipient object since we know the inbox
+    const recipient = {
+      id: new URL(targetActor),
+      inboxId: new URL("http://localhost:8081/users/admin/inbox")
+    };
+    await ctx.sendActivity({ handle: 'commi' }, [recipient], fedifyActivity);
     console.log('Activity sent to', targetActor);
   } catch (err) {
     console.error('Failed to send activity:', err);

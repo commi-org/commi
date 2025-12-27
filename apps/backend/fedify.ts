@@ -13,13 +13,14 @@ import {
   getAuthenticatedDocumentLoader,
 } from "@fedify/fedify";
 import { getOrCreateKeyPair } from "./keys.ts";
+import { loadAnnotations, saveAnnotations, type Annotation } from "./db.ts";
 
 // Initialize Federation
 export const fedi = createFederation<void>({
   kv: new MemoryKvStore(),
   documentLoader: getDocumentLoader({ allowPrivateAddress: true }),
   authenticatedDocumentLoaderFactory: (identity) => {
-    console.log("Creating authenticated loader for", identity.id);
+    console.log("Creating authenticated loader for", identity.keyId);
     return getAuthenticatedDocumentLoader(identity, { allowPrivateAddress: true });
   },
 });
@@ -119,13 +120,60 @@ fedi.setOutboxDispatcher("/users/{handle}/outbox", async (ctx, handle, options) 
   return { items: [] };
 });
 
+// Logic extracted for testing
+export async function processIncomingNote(object: Note) {
+  const json = await object.toJsonLd() as any;
+  console.log("Received Note JSON:", json);
+  
+  const content = json.content?.toString() || "";
+  const attributedTo = json.attributedTo?.toString() || "unknown";
+  const id = json.id?.toString() || `temp-${Date.now()}`;
+  const published = json.published?.toString() || new Date().toISOString();
+  const inReplyTo = json.inReplyTo?.toString();
+
+  let target = { href: "" };
+
+  // 1. Check if it's a reply to an existing annotation
+  if (inReplyTo) {
+    const all = loadAnnotations();
+    const parent = all.find(a => a.id === inReplyTo);
+    if (parent) {
+      console.log(`Found parent annotation: ${parent.id} for target ${parent.target.href}`);
+      // Inherit the target URL so it shows up on the same page
+      target = { href: parent.target.href };
+    } else {
+      console.log(`Parent annotation ${inReplyTo} not found. Storing without target.`);
+    }
+  }
+
+  if (target.href) {
+    const newAnnotation: Annotation = {
+      id,
+      type: 'Note',
+      attributedTo,
+      content,
+      target,
+      published,
+      inReplyTo
+    };
+
+    const all = loadAnnotations();
+    // Avoid duplicates
+    if (!all.find(a => a.id === newAnnotation.id)) {
+      all.push(newAnnotation);
+      saveAnnotations(all);
+      console.log("Saved incoming annotation:", newAnnotation.id);
+    }
+  }
+}
+
 // Inbox Listener
 fedi
   .setInboxListeners("/users/{handle}/inbox", "/inbox")
   .on(Create, async (ctx, create) => {
     const object = await create.getObject();
     if (object instanceof Note) {
-      console.log("Received Note:", object);
+      await processIncomingNote(object);
     } else if (object instanceof Person) {
       console.log("Received Person:", object);
     }

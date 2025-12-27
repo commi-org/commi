@@ -1,91 +1,67 @@
-# Local Federation Setup
+# Local Federation Testing
 
-This document describes how to set up a local development environment to test ActivityPub federation between the **Commi Backend** and a local **GoToSocial** instance (acting as a Mastodon-compatible server).
+This document describes how to test ActivityPub federation between the **Commi Backend** and a local **GoToSocial** instance.
 
 ## Overview
 
-We use **GoToSocial** running in Docker to simulate a remote ActivityPub server. The Commi backend is configured to:
-1.  Expose a `/.well-known/webfinger` endpoint for discovery.
-2.  Generate RSA keys for HTTP Signatures.
-3.  Sign outgoing requests to the GoToSocial inbox.
-4.  Deliver `Create` activities containing `Note` objects.
+We use **GoToSocial** running in Docker to simulate a remote ActivityPub server. The Commi backend:
+1. Exposes `/.well-known/webfinger` for discovery
+2. Signs outgoing requests with HTTP Signatures
+3. Delivers `Create` activities containing `Note` objects
+4. Receives and processes incoming activities via inbox
 
-## Prerequisites
-
-- Docker & Docker Compose
-- Deno
-
-## 1. Start GoToSocial
-
-We use a custom `docker-compose.yml` configured for local, insecure HTTP federation.
+## Quick Start
 
 ```bash
-# In the root of the monorepo
+# 1. Start GoToSocial
 docker compose up -d
-```
 
-This starts GoToSocial on `http://localhost:8081`.
-
-### Configuration Highlights
-The `docker-compose.yml` includes specific settings to allow local federation:
-- `GTS_HTTP_CLIENT_ALLOW_IPS=127.0.0.1/32,::1/128`: Allows GoToSocial to talk to localhost.
-- `GTS_HTTP_CLIENT_INSECURE_OUTGOING=true`: Allows HTTP (non-HTTPS) connections.
-- `GTS_PROTOCOL=http`: Runs the server in HTTP mode.
-- `network_mode: "host"`: Ensures `localhost` inside the container resolves to the host machine, allowing GoToSocial to fetch actors/activities from the Commi backend.
-
-## 2. Create a Test User on GoToSocial
-
-You need a user on the GoToSocial instance to receive messages.
-
-```bash
-docker exec gotosocial /gotosocial/gotosocial admin account create \
-  --username admin \
-  --email admin@example.com \
-  --password 'StrongPassword123!'
-```
-
-This creates the user `@admin@localhost:8081`.
-
-## 3. Start the Commi Backend
-
-The backend will automatically generate an RSA key pair (`apps/backend/keys.json`) on first run.
-
-```bash
+# 2. Start Commi backend (in another terminal)
 cd apps/backend
 deno task start
+
+# 3. Run automated E2E test
+deno task test:e2e
 ```
 
-The server runs on `http://localhost:8080`.
+The E2E test automatically:
+- Creates a test annotation on Commi
+- Waits for it to federate to GoToSocial
+- Posts a reply from GoToSocial
+- Verifies the reply appears in Commi's annotations
 
-## 4. Trigger Federation
+## Manual Testing
 
-Send a POST request to the backend to create an annotation. The backend is hardcoded to federate this to `@admin@localhost:8081`.
-
+### Create an annotation via API:
 ```bash
-curl -X POST -H "Content-Type: application/json" -d '{
-  "content": "Hello Federated World!",
-  "target": {
-    "href": "https://example.com",
-    "selector": {
-      "type": "TextQuoteSelector",
-      "exact": "Example Domain"
-    }
-  }
-}' http://localhost:8080/api/annotations
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"content": "Hello Federated World!", "target": {"href": "https://example.com", "selector": {"type": "TextQuoteSelector", "exact": "Example Domain"}}}' \
+  http://localhost:8080/api/annotations
 ```
 
-## 5. Verify Delivery
-
-Check the GoToSocial database to see if the status was created:
-
+### Verify it federated to GoToSocial:
 ```bash
-sqlite3 ./gotosocial_data/sqlite.db "SELECT id, content, uri FROM statuses ORDER BY created_at DESC LIMIT 5;"
+sqlite3 ./gotosocial_data/sqlite.db \
+  "SELECT id, content FROM statuses ORDER BY created_at DESC LIMIT 5;"
 ```
 
-You should see your message in the output.
+### Check inbound delivery logs:
+```bash
+tail -f apps/backend/backend.log | grep "Received Note"
+```
+
+## Configuration
+
+The `docker-compose.yml` includes settings for local HTTP federation:
+- `GTS_HTTP_CLIENT_ALLOW_IPS=127.0.0.1/32,::1/128`: Localhost connections
+- `GTS_HTTP_CLIENT_INSECURE_OUTGOING=true`: Allow HTTP (non-HTTPS)
+- `GTS_PROTOCOL=http`: Run server in HTTP mode
+- `network_mode: "host"`: GoToSocial can reach Commi at `localhost:8080`
 
 ## Troubleshooting
 
-- **"Receiver does not follow requester"**: GoToSocial requires an explicit `Mention` tag in the ActivityPub object if the receiver does not follow the sender. The backend automatically adds this tag for the `@admin` user.
-- **Connection Refused**: Ensure `network_mode: "host"` is set in `docker-compose.yml`.
-- **Logs**: Check GoToSocial logs with `docker compose logs -f`.
+- **E2E test fails**: Ensure both Docker and backend are running
+- **Connection Refused**: Check `network_mode: "host"` in docker-compose.yml
+- **Admin user errors**: The E2E test auto-creates the admin user if needed
+- **View GoToSocial logs**: `docker compose logs -f gotosocial`
+- **View Commi logs**: `tail -f apps/backend/backend.log`

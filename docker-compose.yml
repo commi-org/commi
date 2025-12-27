@@ -17,5 +17,6 @@ services:
       - GTS_HTTP_CLIENT_INSECURE_OUTGOING=true
       - GTS_PROTOCOL=http
       - GTS_LOG_LEVEL=debug
+      - GTS_ADVANCED_OAUTH_PASSWORD_GRANT=true
     volumes:
       - ./gotosocial_data:/gotosocial/storage
