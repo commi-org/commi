@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { federation } from '@fedify/hono';
-import { Activity } from '@fedify/fedify';
+import { Activity, Announce } from '@fedify/fedify';
 import { sign, verify } from 'hono/jwt';
 import { fedi, setupInboxListeners } from './fedify.ts';
 import { configure, getConsoleSink } from "@logtape/logtape";
@@ -244,7 +244,15 @@ app.post('/api/annotations', async (c) => {
       attributedTo: user.id,
       published: newAnnotation.published,
       to: ["https://www.w3.org/ns/activitystreams#Public"],
-      cc
+      cc,
+      // Use 'tag' to transport target URL since Fedify strips 'target' on Note
+      tag: [
+        {
+          type: "Link",
+          href: newAnnotation.target.href,
+          name: "target"
+        }
+      ]
     },
     to: ["https://www.w3.org/ns/activitystreams#Public"],
     cc
@@ -257,6 +265,7 @@ app.post('/api/annotations', async (c) => {
     const ctx = fedi.createContext(c.req.raw);
     const fedifyActivity = await Activity.fromJsonLd(activity);
     
+    // 1. Send to User's Followers
     if (followers.length > 0) {
       const recipients = followers.map(f => ({
         id: new URL(f.id),
@@ -264,9 +273,37 @@ app.post('/api/annotations', async (c) => {
       }));
       await ctx.sendActivity({ identifier: user.username }, recipients, fedifyActivity);
       console.log(`Activity sent to ${followers.length} followers`);
-    } else {
-      console.log('No followers to send to.');
     }
+
+    // 2. Instance Actor Announcement (Wildcard Subscription)
+    // The instance actor "boosts" the note to its followers (e.g. Aggregator)
+    const instanceActorHandle = "commi-instance";
+    const instanceUser = await getUser(instanceActorHandle);
+    
+    if (instanceUser) {
+       // Load instance followers (Aggregator should be following this)
+       // Note: In a real app, we'd have separate follower lists per user.
+       // Here, loadFollowers() returns ALL followers because our DB is simple.
+       // We will filter to find the Aggregator or just broadcast to all for prototype.
+       const instanceFollowers = await loadFollowers(); 
+       
+       if (instanceFollowers.length > 0) {
+         const announce = new Announce({
+            id: new URL(`${HOST}/activities/${crypto.randomUUID()}`),
+            actor: new URL(instanceUser.id),
+            object: fedifyActivity
+         });
+         
+         const recipients = instanceFollowers.map(f => ({
+            id: new URL(f.id),
+            inboxId: new URL(f.inbox)
+         }));
+
+         await ctx.sendActivity({ identifier: instanceActorHandle }, recipients, announce);
+         console.log(`Instance Actor announced activity to ${recipients.length} followers`);
+       }
+    }
+
   } catch (err) {
     console.error('Failed to send activity:', err);
   }

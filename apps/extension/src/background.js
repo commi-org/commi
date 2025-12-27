@@ -39,6 +39,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
 });
 
 const API_BASE_URL = 'http://localhost:8080';
+const AGGREGATOR_BASE_URL = 'http://localhost:8082';
 
 async function getToken() {
   const result = await chrome.storage.local.get(['access_token']);
@@ -48,7 +49,8 @@ async function getToken() {
 async function fetchAnnotations(url) {
   try {
     const encodedUrl = encodeURIComponent(url);
-    const response = await fetch(`${API_BASE_URL}/api/annotations?url=${encodedUrl}`);
+    // Fetch from Aggregator instead of Backend
+    const response = await fetch(`${AGGREGATOR_BASE_URL}/api/search?url=${encodedUrl}`);
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     return await response.json();
   } catch (error) {

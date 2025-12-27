@@ -11,7 +11,8 @@ import {
   getAuthenticatedDocumentLoader,
   Follow,
   Accept,
-  Undo
+  Undo,
+  Announce
 } from "@fedify/fedify";
 import { getOrCreateKeyPair, addNote } from "./db.ts";
 
@@ -77,22 +78,46 @@ fedi.setOutboxDispatcher("/users/{handle}/outbox", async (ctx, handle, options) 
   return { items: [] };
 });
 
-// Inbox: Listen for Create(Note)
+// Inbox: Listen for Create(Note) and Announce(Note)
 fedi.setInboxListeners("/users/{handle}/inbox", "/inbox")
+  .on(Announce, async (ctx, announce) => {
+    const object = await announce.getObject();
+    if (object instanceof Note) {
+       console.log("[Aggregator] Received Announce for Note");
+       await processNote(ctx, object);
+    } else if (object instanceof Create) {
+       const innerObject = await object.getObject();
+       if (innerObject instanceof Note) {
+          console.log("[Aggregator] Received Announce for Create(Note)");
+          await processNote(ctx, innerObject);
+       }
+    }
+  })
   .on(Create, async (ctx, create) => {
     const object = await create.getObject();
     if (object instanceof Note) {
+      await processNote(ctx, object);
+    }
+  })
+  .on(Accept, async (ctx, accept) => {
+    console.log("[Aggregator] Follow request accepted:", accept.actorId?.href);
+  });
+
+async function processNote(ctx: any, object: Note) {
       const json = await object.toJsonLd() as any;
-      console.log("[Aggregator] Received Note:", json.id);
       
-      // Extract target URL if available (Commi extension)
       let targetUrl = "";
       if (json.target && json.target.href) {
         targetUrl = json.target.href;
-      } else if (json.inReplyTo) {
-        // TODO: Resolve parent to find target
-        targetUrl = "unknown-reply"; 
+      } else if (json.tag) {
+        const tags = Array.isArray(json.tag) ? json.tag : [json.tag];
+        const targetTag = tags.find((t: any) => t.type === "Link" && t.name === "target");
+        if (targetTag && targetTag.href) {
+          targetUrl = targetTag.href;
+        }
       }
+      
+      console.log(`[Aggregator] Processing Note ${json.id} with target ${targetUrl}`);
 
       addNote({
         id: json.id,
@@ -100,10 +125,6 @@ fedi.setInboxListeners("/users/{handle}/inbox", "/inbox")
         targetUrl,
         author: json.attributedTo,
         published: json.published,
-        origin: ctx.getActorUri("index").host // Rough approximation
+        origin: ctx.getActorUri("index").host 
       });
-    }
-  })
-  .on(Accept, async (ctx, accept) => {
-    console.log("[Aggregator] Follow request accepted:", accept.actorId?.href);
-  });
+}
