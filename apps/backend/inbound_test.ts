@@ -1,7 +1,7 @@
 
 import { Note } from "@fedify/fedify";
 import { processIncomingNote } from "./fedify.ts";
-import { loadAnnotations, saveAnnotations, type Annotation } from "./db.ts";
+import { loadAnnotations, saveAnnotation, type Annotation } from "./db.ts";
 
 function assertEquals(actual: any, expected: any, msg?: string) {
   if (actual !== expected) {
@@ -23,9 +23,7 @@ Deno.test("Logic: Reply inherits target", async () => {
     published: new Date().toISOString()
   };
   
-  const all = loadAnnotations();
-  all.push(parent);
-  saveAnnotations(all);
+  await saveAnnotation(parent);
 
   // 2. Create a mock incoming Note
   // We can construct a Note from JSON-LD to ensure it has the right structure
@@ -44,7 +42,7 @@ Deno.test("Logic: Reply inherits target", async () => {
   await processIncomingNote(note);
 
   // 4. Verify
-  const updated = loadAnnotations();
+  const updated = await loadAnnotations();
   const reply = updated.find(a => a.id === replyId);
   
   if (!reply) throw new Error("Reply not saved to DB");

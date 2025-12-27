@@ -13,14 +13,14 @@ import {
   getAuthenticatedDocumentLoader,
   Context,
 } from "@fedify/fedify";
-import { getOrCreateKeyPair } from "./keys.ts";
 import { 
-  loadAnnotations, 
-  saveAnnotations, 
+  saveAnnotation, 
   type Annotation,
   addFollower,
   removeFollower,
-  loadFollowers
+  loadFollowers,
+  getUser,
+  getAnnotation
 } from "./db.ts";
 
 // Initialize Federation
@@ -39,56 +39,39 @@ export const fedi = createFederation<void>({
 // This is needed for sendActivity to allow sending to localhost inboxes.
 (fedi as any).allowPrivateAddress = true;
 
-
 // Helper to convert PEM to CryptoKey
-async function importPemKeys() {
-  console.log("Importing PEM keys...");
-  try {
-    const { publicKey: pubPem, privateKey: privPem } = getOrCreateKeyPair();
-    console.log("Keys read from file.");
+async function importKey(pem: string, type: "public" | "private") {
+  const pemHeader = /-----BEGIN [^-]+-----/;
+  const pemFooter = /-----END [^-]+-----/;
+  const base64 = pem.replace(pemHeader, "").replace(pemFooter, "").replace(/\s/g, "");
+  const binary = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
 
-    // Helper to strip PEM headers and decode Base64
-    const pemHeader = /-----BEGIN [^-]+-----/;
-    const pemFooter = /-----END [^-]+-----/;
-    
-    function parsePem(pem: string) {
-      const base64 = pem
-        .replace(pemHeader, "")
-        .replace(pemFooter, "")
-        .replace(/\s/g, "");
-      return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-    }
-
-    const publicKey = await crypto.subtle.importKey(
+  if (type === "public") {
+    return await crypto.subtle.importKey(
       "spki",
-      parsePem(pubPem),
+      binary,
       { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
       true,
       ["verify"]
     );
-
-    const privateKey = await crypto.subtle.importKey(
+  } else {
+    return await crypto.subtle.importKey(
       "pkcs8",
-      parsePem(privPem),
+      binary,
       { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
       true,
       ["sign"]
     );
-    
-    console.log("Keys imported successfully.");
-    return { publicKey, privateKey };
-  } catch (error) {
-    console.error("Error importing keys:", error);
-    throw error;
   }
 }
 
 // Actor Dispatcher
 fedi.setActorDispatcher("/users/{handle}", async (ctx, handle) => {
   try {
-    if (handle !== "commi") return null;
-
     console.log("Generating actor for:", handle);
+    const user = await getUser(handle);
+    if (!user) return null;
+
     const keyPairs = await ctx.getActorKeyPairs(handle);
     console.log("Key pairs retrieved:", keyPairs.length);
 
@@ -100,7 +83,7 @@ fedi.setActorDispatcher("/users/{handle}", async (ctx, handle) => {
 
     const person = new Person({
       id: ctx.getActorUri(handle),
-      name: "Commi Bot",
+      name: user.username,
       summary: "I annotate the web.",
       preferredUsername: handle,
       inbox: ctx.getInboxUri(handle),
@@ -117,12 +100,13 @@ fedi.setActorDispatcher("/users/{handle}", async (ctx, handle) => {
   }
 })
 .setKeyPairsDispatcher(async (ctx, handle) => {
-  if (handle !== "commi") return [];
+  const user = await getUser(handle);
+  if (!user) return [];
 
-  // Load keys from existing keys.json
-  // In a real app, you might migrate this to Deno KV
-  const keys = await importPemKeys();
-  return [keys];
+  const publicKey = await importKey(user.publicKey, "public");
+  const privateKey = await importKey(user.privateKey, "private");
+
+  return [{ publicKey, privateKey }];
 });
 
 // Outbox Dispatcher (Required by Fedify even if empty)
@@ -132,7 +116,7 @@ fedi.setOutboxDispatcher("/users/{handle}/outbox", async (ctx, handle, options) 
 
 // Followers Dispatcher
 fedi.setFollowersDispatcher("/users/{handle}/followers", async (ctx, handle, options) => {
-  const followers = loadFollowers();
+  const followers = await loadFollowers();
   const items = followers.map(f => ({ id: new URL(f.id), inboxId: new URL(f.inbox) }));
   return { items };
 });
@@ -152,8 +136,7 @@ export async function processIncomingNote(object: Note) {
 
   // 1. Check if it's a reply to an existing annotation
   if (inReplyTo) {
-    const all = loadAnnotations();
-    const parent = all.find(a => a.id === inReplyTo);
+    const parent = await getAnnotation(inReplyTo);
     if (parent) {
       console.log(`Found parent annotation: ${parent.id} for target ${parent.target.href}`);
       // Inherit the target URL so it shows up on the same page
@@ -174,11 +157,10 @@ export async function processIncomingNote(object: Note) {
       inReplyTo
     };
 
-    const all = loadAnnotations();
+    const existing = await getAnnotation(newAnnotation.id);
     // Avoid duplicates
-    if (!all.find(a => a.id === newAnnotation.id)) {
-      all.push(newAnnotation);
-      saveAnnotations(all);
+    if (!existing) {
+      await saveAnnotation(newAnnotation);
       console.log("Saved incoming annotation:", newAnnotation.id);
     }
   }
@@ -186,9 +168,21 @@ export async function processIncomingNote(object: Note) {
 
 
 export async function processFollow(ctx: Context<void>, follow: Follow) {
-  if (follow.objectId?.href !== ctx.getActorUri("commi").href) {
+  // Check if the follow is for one of our users
+  // For now, we accept follows for any valid user
+  const objectId = follow.objectId;
+  if (!objectId) return;
+
+  // Extract handle from URI (assuming /users/{handle})
+  const pathParts = objectId.pathname.split('/');
+  const handle = pathParts[pathParts.length - 1];
+  const user = await getUser(handle);
+
+  if (!user) {
+    console.log(`Follow request for unknown user: ${handle}`);
     return;
   }
+
   const follower = follow.actorId;
   if (!follower) return;
 
@@ -204,14 +198,15 @@ export async function processFollow(ctx: Context<void>, follow: Follow) {
   }
 
   console.log(`New follower: ${follower.href} (inbox: ${inbox})`);
-  addFollower(follower.href, inbox);
+  await addFollower(follower.href, inbox);
 
   // 2. Send Accept
   const accept = new Accept({
+    id: new URL(`${follow.objectId.href}/accept/${crypto.randomUUID()}`),
     actor: follow.objectId,
     object: follow,
   });
-  await ctx.sendActivity({ handle: "commi" }, { id: follower, inboxId: new URL(inbox) }, accept);
+  await ctx.sendActivity({ identifier: handle }, { id: follower, inboxId: new URL(inbox) }, accept);
 }
 
 export async function processUndo(ctx: Context<void>, undo: Undo) {
@@ -220,7 +215,7 @@ export async function processUndo(ctx: Context<void>, undo: Undo) {
     const follower = object.actorId;
     if (follower) {
       console.log(`Removing follower: ${follower.href}`);
-      removeFollower(follower.href);
+      await removeFollower(follower.href);
     }
   }
 }

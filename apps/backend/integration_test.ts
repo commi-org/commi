@@ -6,14 +6,45 @@ function assertEquals(actual: any, expected: any, msg?: string) {
   }
 }
 
+let accessToken = "";
+const username = "int_test_user_" + Date.now();
+
+Deno.test("Setup: Register User", async () => {
+  const res = await fetch(`${API_URL}/api/v1/accounts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ 
+      username, 
+      email: `${username}@example.com`, 
+      password: "password" 
+    }),
+  });
+  if (res.status !== 200) {
+      const loginRes = await fetch(`${API_URL}/oauth/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+            grant_type: "password",
+            username,
+            password: "password"
+        })
+      });
+      const data = await loginRes.json();
+      accessToken = data.access_token;
+  } else {
+      const data = await res.json();
+      accessToken = data.access_token;
+  }
+});
+
 Deno.test("ActivityPub Actor Profile", async () => {
-  const res = await fetch(`${API_URL}/users/commi`, {
+  const res = await fetch(`${API_URL}/users/${username}`, {
     headers: { "Accept": "application/activity+json" }
   });
   assertEquals(res.status, 200);
   const data = await res.json();
   assertEquals(data.type, "Person");
-  assertEquals(data.preferredUsername, "commi");
+  assertEquals(data.preferredUsername, username);
 });
 
 Deno.test("Create and Fetch Annotation", async () => {
@@ -22,7 +53,10 @@ Deno.test("Create and Fetch Annotation", async () => {
   // 1. Create
   const createRes = await fetch(`${API_URL}/api/annotations`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${accessToken}`
+    },
     body: JSON.stringify({
       content: "Test annotation",
       target: {

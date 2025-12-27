@@ -1,6 +1,6 @@
 
 import { Follow, Undo, Context } from "@fedify/fedify";
-import { loadFollowers, saveFollowers } from "./db.ts";
+import { loadFollowers, removeFollower, createUser } from "./db.ts";
 import { processFollow, processUndo } from "./fedify.ts";
 
 const API_URL = "http://localhost:8080";
@@ -27,11 +27,18 @@ const mockCtx = {
 } as unknown as Context<void>;
 
 Deno.test("Follower Management", async (t) => {
-  // Reset followers
-  saveFollowers([]);
+  // Ensure user exists
+  try {
+    await createUser("commi", "commi@example.com", "hash", "http://localhost:8080");
+  } catch (e) {
+    // Ignore if already exists
+  }
 
   const followerId = "https://remote.instance/users/fan";
   const followerInbox = "https://remote.instance/users/fan/inbox";
+
+  // Reset specific follower
+  await removeFollower(followerId);
 
   await t.step("Receive Follow Activity", async () => {
     const follow = new Follow({
@@ -43,7 +50,7 @@ Deno.test("Follower Management", async (t) => {
     await processFollow(mockCtx, follow);
 
     // Verify follower is saved
-    const followers = loadFollowers();
+    const followers = await loadFollowers();
     const found = followers.find(f => f.id === followerId);
     assert(!!found, "Follower should be saved");
     // The fallback logic appends /inbox
@@ -78,7 +85,7 @@ Deno.test("Follower Management", async (t) => {
 
     await processUndo(mockCtx, undo);
 
-    const followers = loadFollowers();
+    const followers = await loadFollowers();
     const found = followers.find(f => f.id === followerId);
     assert(!found, "Follower should be removed");
   });

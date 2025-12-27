@@ -16,22 +16,57 @@ function assert(condition: boolean, msg?: string) {
 
 // --- Tests ---
 
+let accessToken = "";
+const username = "api_test_user_" + Date.now();
+
+Deno.test("Setup: Register User", async () => {
+  const res = await fetch(`${API_URL}/api/v1/accounts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ 
+      username, 
+      email: `${username}@example.com`, 
+      password: "password" 
+    }),
+  });
+  if (res.status !== 200) {
+      // If already exists, try login
+      const loginRes = await fetch(`${API_URL}/oauth/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+            grant_type: "password",
+            username,
+            password: "password"
+        })
+      });
+      const data = await loginRes.json();
+      accessToken = data.access_token;
+  } else {
+      const data = await res.json();
+      accessToken = data.access_token;
+  }
+});
+
 Deno.test("GET /users/:name - Actor Profile", async () => {
-  const res = await fetch(`${API_URL}/users/commi`, {
+  const res = await fetch(`${API_URL}/users/${username}`, {
     headers: { "Accept": "application/activity+json" }
   });
   assertEquals(res.status, 200);
   const data = await res.json();
   assertEquals(data.type, "Person");
-  assertEquals(data.preferredUsername, "commi");
-  assert(data.inbox.endsWith("/users/commi/inbox"), "Inbox URL incorrect");
+  assertEquals(data.preferredUsername, username);
+  assert(data.inbox.endsWith(`/users/${username}/inbox`), "Inbox URL incorrect");
 });
 
 Deno.test("POST /api/annotations - Validation Errors", async () => {
   // Missing content
   const res1 = await fetch(`${API_URL}/api/annotations`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${accessToken}`
+    },
     body: JSON.stringify({
       target: { href: "https://example.com" }
     })
@@ -42,7 +77,10 @@ Deno.test("POST /api/annotations - Validation Errors", async () => {
   // Missing target
   const res2 = await fetch(`${API_URL}/api/annotations`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${accessToken}`
+    },
     body: JSON.stringify({
       content: "Hello"
     })
@@ -58,7 +96,10 @@ Deno.test("POST /api/annotations - Create & Fetch (TextQuote)", async () => {
   // 1. Create
   const createRes = await fetch(`${API_URL}/api/annotations`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${accessToken}`
+    },
     body: JSON.stringify({
       content,
       target: {
@@ -91,7 +132,10 @@ Deno.test("POST /api/annotations - Create & Fetch (Timestamp)", async () => {
   
   const createRes = await fetch(`${API_URL}/api/annotations`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${accessToken}`
+    },
     body: JSON.stringify({
       content: "Jump scare here",
       target: {

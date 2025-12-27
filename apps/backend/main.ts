@@ -2,8 +2,21 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { federation } from '@fedify/hono';
 import { Activity } from '@fedify/fedify';
+import { sign, verify } from 'hono/jwt';
 import { fedi, setupInboxListeners } from './fedify.ts';
 import { configure, getConsoleSink } from "@logtape/logtape";
+import { 
+  loadAnnotations, 
+  saveAnnotation, 
+  saveActivity, 
+  loadFollowers,
+  createUser,
+  getUser,
+  getUserByEmail,
+  getAnnotation,
+  getActivity,
+  type Annotation, 
+} from './db.ts';
 
 await configure({
   sinks: { console: getConsoleSink() },
@@ -17,6 +30,7 @@ await configure({
 setupInboxListeners();
 
 const app = new Hono();
+const JWT_SECRET = "commi-secret-key-change-me"; // In prod, use env var
 
 // --- Logging ---
 const LOG_FILE = './backend.log';
@@ -43,14 +57,13 @@ app.onError((err, c) => {
 const PORT = 8080;
 const HOST = `http://localhost:${PORT}`;
 
-import { 
-  loadAnnotations, 
-  saveAnnotations, 
-  loadActivities, 
-  saveActivities, 
-  loadFollowers,
-  type Annotation, 
-} from './db.ts';
+// --- Helpers ---
+async function hashPassword(password: string) {
+  const msgBuffer = new TextEncoder().encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 // --- Middleware ---
 // Simple Rate Limiter (50 req/sec per IP)
@@ -85,41 +98,128 @@ app.use(federation(fedi, (c) => {
   return undefined;
 }));
 
+// --- Auth Endpoints ---
+
+// Register
+app.post('/api/v1/accounts', async (c) => {
+  const { username, email, password } = await c.req.json();
+  if (!username || !email || !password) {
+    return c.json({ error: 'Missing fields' }, 400);
+  }
+
+  try {
+    const passwordHash = await hashPassword(password);
+    const user = await createUser(username, email, passwordHash, HOST);
+    
+    // Issue Token
+    const token = await sign({ id: user.id, username: user.username, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, JWT_SECRET); // 30 days
+
+    return c.json({ access_token: token, token_type: 'Bearer', ...user });
+  } catch (e) {
+    return c.json({ error: e.message }, 400);
+  }
+});
+
+// Login (OAuth 2.0 Password Grant)
+app.post('/oauth/token', async (c) => {
+  const body = await c.req.parseBody(); // Handle form-data or json
+  const grantType = body['grant_type'];
+  const username = body['username'] as string; // Can be email
+  const password = body['password'] as string;
+
+  if (grantType !== 'password') {
+    return c.json({ error: 'unsupported_grant_type' }, 400);
+  }
+
+  let user = await getUser(username);
+  if (!user) {
+    // Try email
+    user = await getUserByEmail(username);
+  }
+
+  if (!user) {
+    return c.json({ error: 'invalid_client' }, 401);
+  }
+
+  const hash = await hashPassword(password);
+  if (hash !== user.passwordHash) {
+    return c.json({ error: 'invalid_client' }, 401);
+  }
+
+  const token = await sign({ id: user.id, username: user.username, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, JWT_SECRET);
+
+  return c.json({
+    access_token: token,
+    token_type: 'Bearer',
+    scope: 'read write',
+    created_at: Math.floor(Date.now() / 1000)
+  });
+});
+
+// Verify Credentials
+app.get('/api/v1/accounts/verify_credentials', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+  const token = authHeader.split(' ')[1];
+  try {
+    const payload = await verify(token, JWT_SECRET);
+    const user = await getUser(payload.username as string);
+    if (!user) return c.json({ error: 'User not found' }, 404);
+    return c.json(user);
+  } catch {
+    return c.json({ error: 'Invalid Token' }, 401);
+  }
+});
+
+
 // --- API Endpoints ---
 
 // 1. Get Annotations for a URL
-app.get('/api/annotations', (c) => {
+app.get('/api/annotations', async (c) => {
   const url = c.req.query('url');
   if (!url) return c.json({ error: 'Missing url parameter' }, 400);
 
-  const all = loadAnnotations();
-  // Filter by target URL (simple exact match for now)
-  // In a real app, we might normalize URLs
-  const filtered = all.filter(a => a.target.href === url || url.includes(a.target.href));
-  
-  return c.json(filtered);
+  const annotations = await loadAnnotations(url);
+  return c.json(annotations);
 });
 
-// 2. Create Annotation
+// 2. Create Annotation (Protected)
 app.post('/api/annotations', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  let user;
+  try {
+    const token = authHeader.split(' ')[1];
+    const payload = await verify(token, JWT_SECRET);
+    user = await getUser(payload.username as string);
+  } catch {
+    return c.json({ error: 'Invalid Token' }, 401);
+  }
+
+  if (!user) return c.json({ error: 'User not found' }, 404);
+
   const body = await c.req.json();
-  const { content, target, author } = body;
+  const { content, target } = body;
 
   if (!content || !target || !target.href) {
     return c.json({ error: 'Invalid input' }, 400);
   }
 
   // --- Federation Logic ---
-  const followers = loadFollowers();
-  const followerIds = followers.map(f => f.id);
+  const followers = await loadFollowers();
   
   // Always CC followers
-  const cc = [...followerIds];
+  const cc = followers.map(f => f.id);
 
   const newAnnotation: Annotation = {
     id: `${HOST}/annotations/${crypto.randomUUID()}`,
     type: 'Note',
-    attributedTo: (author && author.startsWith('http')) ? author : `${HOST}/users/commi`,
+    attributedTo: user.id,
     content,
     target: {
       href: target.href,
@@ -130,22 +230,18 @@ app.post('/api/annotations', async (c) => {
     cc
   };
 
-  const all = loadAnnotations();
-  all.push(newAnnotation);
-  saveAnnotations(all);
-
-  const actorId = newAnnotation.attributedTo;
+  await saveAnnotation(newAnnotation);
 
   const activity = {
     "@context": "https://www.w3.org/ns/activitystreams",
     id: `${HOST}/activities/${crypto.randomUUID()}`,
     type: "Create",
-    actor: actorId,
+    actor: user.id,
     object: {
       id: newAnnotation.id,
       type: "Note",
       content: newAnnotation.content,
-      attributedTo: actorId,
+      attributedTo: user.id,
       published: newAnnotation.published,
       to: ["https://www.w3.org/ns/activitystreams#Public"],
       cc
@@ -154,9 +250,7 @@ app.post('/api/annotations', async (c) => {
     cc
   };
 
-  const activities = loadActivities();
-  activities.push(activity);
-  saveActivities(activities);
+  await saveActivity(activity);
 
   // Send Activity via Fedify
   try {
@@ -168,7 +262,7 @@ app.post('/api/annotations', async (c) => {
         id: new URL(f.id),
         inboxId: new URL(f.inbox)
       }));
-      await ctx.sendActivity({ handle: 'commi' }, recipients, fedifyActivity);
+      await ctx.sendActivity({ identifier: user.username }, recipients, fedifyActivity);
       console.log(`Activity sent to ${followers.length} followers`);
     } else {
       console.log('No followers to send to.');
@@ -181,11 +275,10 @@ app.post('/api/annotations', async (c) => {
 });
 
 // 4. Get Annotation by ID
-app.get('/annotations/:id', (c) => {
+app.get('/annotations/:id', async (c) => {
   const id = c.req.param('id');
   const fullId = `${HOST}/annotations/${id}`;
-  const all = loadAnnotations();
-  const found = all.find(a => a.id === fullId);
+  const found = await getAnnotation(fullId);
   
   if (!found) return c.json({ error: 'Not Found' }, 404);
   
@@ -193,15 +286,10 @@ app.get('/annotations/:id', (c) => {
 });
 
 // 5. Get Activity by ID
-app.get('/activities/:id', (c) => {
+app.get('/activities/:id', async (c) => {
   const id = c.req.param('id');
   const fullId = `${HOST}/activities/${id}`;
-  const all = loadActivities();
-  const found = all.find(a => a.id === fullId);
-  
-  if (!found) return c.json({ error: 'Not Found' }, 404);
-  
-  return c.json(found, 200, { 'Content-Type': 'application/activity+json' });
+  const found = await getActivity(fullId);
 });
 
 console.log(`Server running on ${HOST}`);

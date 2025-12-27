@@ -145,18 +145,36 @@ Deno.test({
     await delay(5000);
 
     // 3. Create annotation on Commi
+    console.log("Creating annotation on Commi...");
+    
+    // Register/Login to Commi first
+    const commiUser = "e2e_user_" + Date.now();
+    const commiPass = "password";
+    const regRes = await fetch(`${COMMI_API}/api/v1/accounts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: commiUser, email: `${commiUser}@example.com`, password: commiPass })
+    });
+    if (!regRes.ok) throw new Error("Failed to register Commi user");
+    const { access_token: commiToken } = await regRes.json();
+
     const targetUrl = "https://example.com/federation-test-" + Date.now();
     const annotationRes = await fetch(`${COMMI_API}/api/annotations`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${commiToken}`
+      },
       body: JSON.stringify({
         content: "Hello from Commi! Please reply to me.",
-        target: { href: targetUrl, selector: { type: "TextQuoteSelector", exact: "Test Context" } },
-        author: "me"
+        target: { href: targetUrl, selector: { type: "TextQuoteSelector", exact: "Test Context" } }
       })
     });
     
-    if (!annotationRes.ok) throw new Error("Failed to create annotation");
+    if (!annotationRes.ok) {
+        const txt = await annotationRes.text();
+        throw new Error(`Failed to create annotation: ${annotationRes.status} ${txt}`);
+    }
     const annotation = await annotationRes.json();
 
     // 4. Verify Aggregator received it (Check this FIRST)

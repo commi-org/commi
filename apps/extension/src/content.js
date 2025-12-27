@@ -7,6 +7,7 @@ const POLL_INTERVAL = 5000; // 5 seconds
 let currentUrl = null;
 let isSidebarVisible = true;
 let pollIntervalId = null;
+let currentUser = null;
 
 // --- DOM Manipulation ---
 
@@ -19,9 +20,13 @@ function createSidebar() {
     <div id="commi-header">
       <h2>Commi Annotations</h2>
       <div class="commi-header-actions">
+        <button id="commi-auth-btn" title="Login/Register" style="margin-right: 5px;"><svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24" fill="currentColor"><path d="M0 0h24v24H0z" fill="none"/><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></button>
         <button id="commi-reload-btn" title="Reload"><svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24" fill="currentColor"><path d="M0 0h24v24H0z" fill="none"/><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
         <button id="commi-toggle-btn"><svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24" fill="currentColor"><path d="M0 0h24v24H0z" fill="none"/><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
       </div>
+    </div>
+    <div id="commi-auth-panel" style="display: none; padding: 10px; background: #f9f9f9; border-bottom: 1px solid #eee;">
+      <!-- Auth Form Injected Here -->
     </div>
     <div id="commi-comments-list">
       <div style="text-align: center; color: #aaa; margin-top: 20px;">Loading annotations...</div>
@@ -45,6 +50,7 @@ function createSidebar() {
     if (list) list.innerHTML = '<div style="text-align: center; color: #aaa; margin-top: 20px;">Reloading...</div>';
     fetchAnnotations();
   });
+  document.getElementById('commi-auth-btn').addEventListener('click', toggleAuthPanel);
   document.getElementById('commi-submit-btn').addEventListener('click', handleSubmitAnnotation);
   document.getElementById('commi-attach-btn').addEventListener('click', handleAttachContext);
   
@@ -58,6 +64,7 @@ function createSidebar() {
   document.body.appendChild(floatingBtn);
 
   updateSidebarVisibility();
+  checkLoginStatus();
 }
 
 function toggleSidebar() {
@@ -76,6 +83,120 @@ function updateSidebarVisibility() {
     sidebar.classList.add('hidden');
     floatingBtn.style.display = 'flex';
   }
+}
+
+function toggleAuthPanel() {
+  const panel = document.getElementById('commi-auth-panel');
+  if (panel.style.display === 'none') {
+    renderAuthForm();
+    panel.style.display = 'block';
+  } else {
+    panel.style.display = 'none';
+  }
+}
+
+function renderAuthForm() {
+  const panel = document.getElementById('commi-auth-panel');
+  if (currentUser) {
+    panel.innerHTML = `
+      <div style="margin-bottom: 10px;">Logged in as <strong>${escapeHtml(currentUser.username)}</strong></div>
+      <button id="commi-logout-btn" style="width: 100%; background: #f44336; color: white; border: none; padding: 8px; cursor: pointer;">Logout</button>
+    `;
+    document.getElementById('commi-logout-btn').addEventListener('click', handleLogout);
+  } else {
+    panel.innerHTML = `
+      <div style="margin-bottom: 10px; font-weight: bold;">Login / Register</div>
+      <input type="text" id="commi-auth-username" placeholder="Username" style="width: 100%; margin-bottom: 5px; padding: 5px;">
+      <input type="email" id="commi-auth-email" placeholder="Email (Register only)" style="width: 100%; margin-bottom: 5px; padding: 5px;">
+      <input type="password" id="commi-auth-password" placeholder="Password" style="width: 100%; margin-bottom: 5px; padding: 5px;">
+      <div style="display: flex; gap: 5px;">
+        <button id="commi-login-btn" style="flex: 1; background: #2196f3; color: white; border: none; padding: 8px; cursor: pointer;">Login</button>
+        <button id="commi-register-btn" style="flex: 1; background: #4caf50; color: white; border: none; padding: 8px; cursor: pointer;">Register</button>
+      </div>
+      <div id="commi-auth-error" style="color: red; font-size: 0.8em; margin-top: 5px;"></div>
+    `;
+    document.getElementById('commi-login-btn').addEventListener('click', handleLogin);
+    document.getElementById('commi-register-btn').addEventListener('click', handleRegister);
+  }
+}
+
+async function checkLoginStatus() {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'GET_USER' });
+    if (response.success && response.data) {
+      currentUser = response.data;
+      document.getElementById('commi-auth-btn').style.color = '#4caf50'; // Green if logged in
+    } else {
+      currentUser = null;
+      document.getElementById('commi-auth-btn').style.color = 'inherit';
+    }
+  } catch (e) {
+    console.error("Auth check failed", e);
+  }
+}
+
+async function handleLogin() {
+  const username = document.getElementById('commi-auth-username').value;
+  const password = document.getElementById('commi-auth-password').value;
+  const errorDiv = document.getElementById('commi-auth-error');
+  
+  errorDiv.textContent = '';
+  if (!username || !password) {
+    errorDiv.textContent = 'Username and password required';
+    return;
+  }
+
+  try {
+    const response = await chrome.runtime.sendMessage({ 
+      type: 'LOGIN', 
+      username, 
+      password 
+    });
+    
+    if (response.success) {
+      await checkLoginStatus();
+      toggleAuthPanel();
+    } else {
+      errorDiv.textContent = response.error;
+    }
+  } catch (e) {
+    errorDiv.textContent = e.message;
+  }
+}
+
+async function handleRegister() {
+  const username = document.getElementById('commi-auth-username').value;
+  const email = document.getElementById('commi-auth-email').value;
+  const password = document.getElementById('commi-auth-password').value;
+  const errorDiv = document.getElementById('commi-auth-error');
+  
+  errorDiv.textContent = '';
+  if (!username || !email || !password) {
+    errorDiv.textContent = 'All fields required';
+    return;
+  }
+
+  try {
+    const response = await chrome.runtime.sendMessage({ 
+      type: 'REGISTER', 
+      username, 
+      email, 
+      password 
+    });
+    
+    if (response.success) {
+      await checkLoginStatus();
+      toggleAuthPanel();
+    } else {
+      errorDiv.textContent = response.error;
+    }
+  } catch (e) {
+    errorDiv.textContent = e.message;
+  }
+}
+
+async function handleLogout() {
+  alert("Logout not fully implemented. Please clear extension data.");
 }
 
 function renderAnnotations(annotations) {
@@ -157,97 +278,96 @@ function handleAttachContext() {
       preview.textContent = `Timestamp: ${selector.start}`;
     }
   } else {
-    currentSelector = null;
-    preview.style.display = 'none';
-    alert('No text selected or video playing.');
-  }
-}
-
-async function fetchAnnotations() {
-  if (!currentUrl) return;
-
-  try {
-    const response = await chrome.runtime.sendMessage({ 
-      type: 'FETCH_ANNOTATIONS', 
-      url: currentUrl 
-    });
-    
-    if (response.success) {
-      renderAnnotations(response.data);
-    } else {
-      throw new Error(response.error);
-    }
-  } catch (error) {
-    console.error('[Commi] Error fetching annotations:', error);
-    const list = document.getElementById('commi-comments-list');
-    if(list) list.innerHTML = '<div style="color: red; text-align: center;">Error loading annotations.</div>';
+    alert('Select text or play a video to attach context.');
   }
 }
 
 async function handleSubmitAnnotation() {
-  const input = document.getElementById('commi-comment-input');
-  const text = input.value.trim();
-  if (!text || !currentUrl) return;
+  if (!currentUser) {
+    alert("Please login to post annotations.");
+    toggleAuthPanel();
+    return;
+  }
 
-  const btn = document.getElementById('commi-submit-btn');
-  btn.disabled = true;
-  btn.textContent = 'Posting...';
+  const input = document.getElementById('commi-comment-input');
+  const content = input.value.trim();
+  
+  if (!content) return;
+
+  const payload = {
+    content,
+    target: {
+      href: currentUrl,
+      selector: currentSelector
+    }
+  };
 
   try {
-    const response = await chrome.runtime.sendMessage({
-      type: 'POST_ANNOTATION',
-      payload: { 
-        content: text, 
-        target: {
-          href: currentUrl,
-          selector: currentSelector
-        },
-        author: 'me' // In real app, this comes from auth
-      }
+    const response = await chrome.runtime.sendMessage({ 
+      type: 'POST_ANNOTATION', 
+      payload 
     });
 
     if (response.success) {
       input.value = '';
       currentSelector = null;
       document.getElementById('commi-context-preview').style.display = 'none';
-      fetchAnnotations(); 
+      fetchAnnotations(); // Refresh list
     } else {
-      throw new Error(response.error);
+      alert('Failed to post: ' + response.error);
     }
   } catch (error) {
-    console.error('[Commi] Error posting annotation:', error);
-    alert('Failed to post annotation');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Post';
+    console.error('Error posting annotation:', error);
+    alert('Error posting annotation');
   }
 }
 
-function startCommi() {
-  // For this extension, we treat the whole URL as the target
-  // But we strip query params if it's not a video? 
-  // For YouTube, we want the video ID.
-  // Let's just use the full URL for now as the "Target"
-  currentUrl = location.href;
+async function fetchAnnotations() {
+  if (!currentUrl) return;
   
-  console.log('[Commi] URL detected:', currentUrl);
+  try {
+    const response = await chrome.runtime.sendMessage({ 
+      type: 'FETCH_ANNOTATIONS', 
+      url: currentUrl 
+    });
+
+    if (response.success) {
+      renderAnnotations(response.data);
+    } else {
+      console.error('Failed to fetch annotations:', response.error);
+    }
+  } catch (error) {
+    console.error('Error fetching annotations:', error);
+  }
+}
+
+// --- Initialization ---
+
+function init() {
+  // Check if we are on a valid page (e.g. YouTube)
+  // For prototype, we run everywhere but only show if user toggles or if we detect content
+  // But manifest limits to specific sites or all_urls.
   
+  currentUrl = window.location.href;
+  
+  // Poll for URL changes (SPA navigation)
+  setInterval(() => {
+    if (window.location.href !== currentUrl) {
+      currentUrl = window.location.href;
+      fetchAnnotations();
+    }
+  }, 1000);
+
   createSidebar();
   fetchAnnotations();
-  
-  if (pollIntervalId) clearInterval(pollIntervalId);
+
+  // Poll for new annotations
   pollIntervalId = setInterval(fetchAnnotations, POLL_INTERVAL);
 }
 
-// SPA Navigation
-let lastUrl = location.href; 
-new MutationObserver(() => {
-  const url = location.href;
-  if (url !== lastUrl) {
-    lastUrl = url;
-    startCommi();
-  }
-}).observe(document, {subtree: true, childList: true});
-
-// Initial run
-startCommi();
+// Run
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
