@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { federation } from '@fedify/hono';
 import { Activity } from '@fedify/fedify';
-import { fedi } from './fedify.ts';
+import { fedi, setupInboxListeners } from './fedify.ts';
 import { configure, getConsoleSink } from "@logtape/logtape";
 
 await configure({
@@ -12,6 +12,9 @@ await configure({
     { category: "fedify", level: "debug", sinks: ["console"] },
   ],
 });
+
+// Setup Fedify Listeners
+setupInboxListeners();
 
 const app = new Hono();
 
@@ -45,6 +48,7 @@ import {
   saveAnnotations, 
   loadActivities, 
   saveActivities, 
+  loadFollowers,
   type Annotation, 
 } from './db.ts';
 
@@ -106,9 +110,11 @@ app.post('/api/annotations', async (c) => {
   }
 
   // --- Federation Logic ---
-  // Automatically federate the new annotation to the admin user on the local instance
-  const targetActor = "http://localhost:8081/users/admin";
-  // const targetInbox = "http://localhost:8081/users/admin/inbox"; // Handled by Fedify later
+  const followers = loadFollowers();
+  const followerIds = followers.map(f => f.id);
+  
+  // Always CC followers
+  const cc = [...followerIds];
 
   const newAnnotation: Annotation = {
     id: `${HOST}/annotations/${crypto.randomUUID()}`,
@@ -121,7 +127,7 @@ app.post('/api/annotations', async (c) => {
     },
     published: new Date().toISOString(),
     to: ['https://www.w3.org/ns/activitystreams#Public'],
-    cc: [targetActor]
+    cc
   };
 
   const all = loadAnnotations();
@@ -138,21 +144,14 @@ app.post('/api/annotations', async (c) => {
     object: {
       id: newAnnotation.id,
       type: "Note",
-      content: `${newAnnotation.content}\n\n@admin@localhost:8081`,
+      content: newAnnotation.content,
       attributedTo: actorId,
       published: newAnnotation.published,
       to: ["https://www.w3.org/ns/activitystreams#Public"],
-      cc: [targetActor],
-      tag: [
-        {
-          type: 'Mention',
-          href: targetActor,
-          name: '@admin@localhost:8081'
-        }
-      ]
+      cc
     },
     to: ["https://www.w3.org/ns/activitystreams#Public"],
-    cc: [targetActor]
+    cc
   };
 
   const activities = loadActivities();
@@ -163,13 +162,17 @@ app.post('/api/annotations', async (c) => {
   try {
     const ctx = fedi.createContext(c.req.raw);
     const fedifyActivity = await Activity.fromJsonLd(activity);
-    // Manually construct Recipient object since we know the inbox
-    const recipient = {
-      id: new URL(targetActor),
-      inboxId: new URL("http://localhost:8081/users/admin/inbox")
-    };
-    await ctx.sendActivity({ handle: 'commi' }, [recipient], fedifyActivity);
-    console.log('Activity sent to', targetActor);
+    
+    if (followers.length > 0) {
+      const recipients = followers.map(f => ({
+        id: new URL(f.id),
+        inboxId: new URL(f.inbox)
+      }));
+      await ctx.sendActivity({ handle: 'commi' }, recipients, fedifyActivity);
+      console.log(`Activity sent to ${followers.length} followers`);
+    } else {
+      console.log('No followers to send to.');
+    }
   } catch (err) {
     console.error('Failed to send activity:', err);
   }
